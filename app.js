@@ -83,6 +83,7 @@ const ICONS = {
   check: '<path d="M5 12l5 5 9-10"/>',
   folder: '<path d="M3 6.5A1.5 1.5 0 014.5 5H9l2 2h8.5A1.5 1.5 0 0121 8.5v9a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 17.5z"/>',
   wrench: '<path d="M14.7 6.3a4 4 0 00-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 005.4-5.4l-2.5 2.5-2.8-.7-.7-2.8z"/>',
+  back: '<path d="M19 12H5"/><path d="M11 5l-7 7 7 7"/>',
   tag: '<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="7.5" r="1.5"/>',
   calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/><path d="M8 14.5l2.5 2.5L16 12"/>',
   bell: '<path d="M6 16V11a6 6 0 0112 0v5l2 2H4z"/><path d="M10 21h4"/>',
@@ -766,6 +767,12 @@ function toast(msg, kind = '') {
   root.appendChild(el); setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .3s'; setTimeout(() => el.remove(), 320); }, 2800);
 }
 
+/* Browser / phone back button: pages and open windows are history entries. */
+const Nav = { depth: 0, skip: 0, pending: null };
+function pushHash(h) {
+  if (Nav.skip > 0) { Nav.pending = h; return; }
+  try { history.pushState({ sp: 1 }, '', '#' + h); Nav.depth++; } catch (e) { /* sandboxed */ }
+}
 const Modal = (() => {
   const stack = [];
   function open({ title, sub = '', body = '', foot = '', size = '', onMount, onClose }) {
@@ -775,10 +782,11 @@ const Modal = (() => {
       <div class="modal-body"></div>${foot ? `<div class="modal-foot">${foot}</div>` : ''}</div>`;
     const bodyEl = $('.modal-body', back); if (typeof body === 'string') bodyEl.innerHTML = body; else bodyEl.appendChild(body);
     $('#modalRoot').appendChild(back); hydrateIcons(back);
-    const api = { el: back, body: bodyEl, close };
-    function close() { const i = stack.indexOf(api); if (i > -1) stack.splice(i, 1); back.remove(); onClose && onClose(); }
+    let pushed = false; try { history.pushState({ spm: 1 }, '', location.href); pushed = true; } catch (e) { /* sandboxed */ }
+    const api = { el: back, body: bodyEl, close, pushed };
+    function close(fromPop) { const i = stack.indexOf(api); if (i < 0) return; stack.splice(i, 1); back.remove(); if (pushed && fromPop !== true) { Nav.skip++; try { history.back(); } catch (e) { Nav.skip--; } } onClose && onClose(); }
     back.addEventListener('mousedown', e => { if (e.target === back) close(); });
-    $$('[data-close]', back).forEach(b => b.addEventListener('click', close));
+    $$('[data-close]', back).forEach(b => b.addEventListener('click', () => close()));
     stack.push(api); onMount && onMount(api);
     const first = $('input:not([type=hidden]):not([type=file]),select,textarea', bodyEl); if (first) setTimeout(() => first.focus(), 30);
     return api;
@@ -869,7 +877,7 @@ function catUI(id) { return state.cat[id] || (state.cat[id] = { q: '', mode: 'ta
 
 function go(view, catId = null) {
   state.view = view; state.catId = catId;
-  try { const h = view === 'category' ? 'cat-' + catId : view; if (location.hash.slice(1) !== h) history.replaceState(null, '', '#' + h); } catch (e) { /* ignore */ }
+  try { const h = view === 'category' ? 'cat-' + catId : view; if (location.hash.slice(1) !== h) pushHash(h); } catch (e) { /* ignore */ }
   $('#app').classList.remove('nav-open');
   render(); const v = $('#view'); v.scrollTop = 0; window.scrollTo(0, 0);
 }
@@ -877,6 +885,20 @@ function readHash() {
   let h = ''; try { h = location.hash.slice(1); } catch (e) { /* ignore */ }
   if (h.startsWith('cat-') && Repo.categories.get(h.slice(4))) { state.view = 'category'; state.catId = h.slice(4); }
   else if (['dashboard', 'stock', 'journal', 'categories', 'settings', 'interventions', 'maintenance'].includes(h)) state.view = h;
+  else if (!h) state.view = 'categories';
+}
+window.addEventListener('popstate', () => {
+  if (Nav.skip > 0) { Nav.skip--; if (!Nav.skip && Nav.pending) { const h = Nav.pending; Nav.pending = null; pushHash(h); } return; }
+  const top = Modal.top(); if (top && top.pushed) { top.close(true); return; }
+  if (Nav.depth > 0) Nav.depth--;
+  closeMenu(); $('#app').classList.remove('nav-open'); readHash(); render(); window.scrollTo(0, 0);
+});
+/** Top-left arrow: previous page, or the parent level when there is no history. */
+function goBack() {
+  if (Modal.top()) { Modal.top().close(); return; }
+  if (Nav.depth > 0) { try { history.back(); return; } catch (e) { /* fall through */ } }
+  const c = state.view === 'category' ? Repo.categories.get(state.catId) : null;
+  if (c && c.parentId) go('category', c.parentId); else go('categories');
 }
 
 function renderNav() {
@@ -907,6 +929,7 @@ function renderCrumbs() {
   if (state.view === 'category') { const c = Repo.categories.get(state.catId); const path = c ? catPath(c) : []; html += `<span class="muted" data-crumb="" style="cursor:pointer">Catégories</span>` + path.map((x, k) => `<span class="sep">/</span>${k === path.length - 1 ? `<span>${esc(x.name)}</span>` : `<span class="muted" data-crumb="${x.id}" style="cursor:pointer">${esc(x.name)}</span>`}`).join(''); }
   else html += `<span>${labels[state.view] || ''}</span>`;
   $('#crumbs').innerHTML = html;
+  const bb = $('#backBtn'); if (bb) bb.hidden = state.view === 'categories';
   $$('#crumbs [data-crumb]').forEach(el => el.addEventListener('click', () => el.dataset.crumb ? go('category', el.dataset.crumb) : go('categories')));
 }
 function render() {
@@ -2435,6 +2458,7 @@ function boot() {
   $('#quickMove').addEventListener('click', () => openMovementForm());
   $('#userChip').addEventListener('click', () => go('settings'));
   $('#menuBtn').addEventListener('click', () => $('#app').classList.toggle('nav-open'));
+  $('#backBtn').addEventListener('click', goBack);
   $('#scrim').addEventListener('click', () => $('#app').classList.remove('nav-open'));
   initGlobalSearch(); readHash(); render();
   startFirebase().then(() => detectLan()).then(() => Cloud.connect(() => Repo.raw(), (fresh) => { Repo.adopt(fresh); applyTheme(); if (!Modal.top()) render(); else renderNav(); toast('Données mises à jour depuis un autre appareil', 'ok'); })
