@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>StockPilot Industrie</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Montserrat:ital,wght@0,700;0,800;1,700&display=swap">
+<link rel="stylesheet" href="style.css">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="theme-color" content="#0B1F52">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="StockPilot">
+<meta name="robots" content="noindex">
+</head>
+<body>
+<div class="splash" id="splash" aria-hidden="true">
+  <div class="sp-glow"></div>
+  <div class="sp-dots"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  <div class="sp-center">
+    <div class="sp-ring"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="54"/></svg></div>
+    <div class="sp-card"><img src="logo-tunisie-silicone.png" alt="Tunisie Silicone"></div>
+    <div class="sp-title"><b>StockPilot</b><span>Gestion de stock &amp; maintenance</span></div>
+    <div class="sp-bar"><span></span></div>
+    <div class="sp-status" id="splashStatus">Chargement des données…</div>
+  </div>
+</div>
+<div class="app" id="app">
+  <aside class="sidebar" id="sidebar" aria-label="Navigation">
+    <div class="brand">
+      <div class="brand-logo"><img src="logo-tunisie-silicone.png" alt="Tunisie Silicone, injection de précision" width="480" height="265"></div>
+      <div class="brand-text">
+        <strong>StockPilot</strong>
+        <span id="brandCompany">Gestion de stock</span>
+      </div>
+    </div>
+    <nav class="nav" id="mainNav">
+      <button class="nav-link nav-home" data-view="categories" type="button"><span class="ico" data-icon="grid"></span>Catégories<span class="nav-step">1</span></button>
+      <button class="nav-link nav-fi" data-view="interventions" type="button"><span class="ico" data-icon="wrench"></span>Fiches d’intervention<span class="nav-badge" id="fiBadge" hidden>0</span></button>
+      <button class="nav-link nav-fi" data-view="maintenance" type="button"><span class="ico" data-icon="calendar"></span>Maintenance préventive<span class="nav-badge mp" id="mpBadge" hidden>0</span></button>
+      <button class="nav-link" data-view="dashboard" type="button"><span class="ico" data-icon="dashboard"></span>Tableau de bord</button>
+      <button class="nav-link" data-view="stock" type="button"><span class="ico" data-icon="stock"></span>Stock</button>
+      <button class="nav-link" data-view="journal" type="button"><span class="ico" data-icon="journal"></span>Journal de stock</button>
+    </nav>
+    <div class="nav-section">
+      <div class="nav-section-head">
+        <span>Catégories</span>
+        <button class="icon-btn small" id="sideAddCategory" type="button" title="Nouvelle catégorie" aria-label="Nouvelle catégorie"><span data-icon="plus"></span></button>
+      </div>
+      <div class="nav-cats" id="navCategories"></div>
+    </div>
+    <nav class="nav nav-bottom">
+      <button class="nav-link" data-view="settings" type="button"><span class="ico" data-icon="settings"></span>Paramètres</button>
+    </nav>
+  </aside>
+  <div class="scrim" id="scrim"></div>
+
+  <div class="main">
+    <header class="topbar">
+      <button class="icon-btn menu-btn" id="menuBtn" type="button" aria-label="Ouvrir le menu"><span data-icon="menu"></span></button>
+      <div class="crumbs" id="crumbs"></div>
+      <div class="top-search">
+        <span data-icon="search"></span>
+        <input id="globalSearch" type="search" placeholder="Rechercher une référence, un article…" autocomplete="off">
+        <div class="search-results" id="searchResults" hidden></div>
+      </div>
+      <div class="top-actions">
+        <div class="sync-chip" id="syncChip" data-state="local" title="Données enregistrées dans ce navigateur"><span class="sdot"></span><span class="t">Enregistré sur cet ordinateur</span></div>
+        <button class="btn btn-accent" id="quickMove" type="button"><span data-icon="swap"></span><span class="hide-sm">Mouvement</span></button>
+        <div class="user-chip" id="userChip" title="Utilisateur courant"><span class="avatar" id="userAvatar">AD</span><span class="hide-sm" id="userName">Admin</span></div>
+      </div>
+    </header>
+    <div class="mp-bar" id="mpBar" hidden></div>
+    <main class="view" id="view" tabindex="-1"></main>
+  </div>
+</div>
+
+<div class="modal-root" id="modalRoot"></div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<div class="menu-pop" id="menuPop" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>
