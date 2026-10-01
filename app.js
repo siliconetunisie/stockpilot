@@ -322,7 +322,7 @@ async function startFirebase() {
     if (!firebase.apps.length) firebase.initializeApp(FB_CONFIG);
     FB.auth = firebase.auth(); FB.db = firebase.firestore();
   } catch (e) { toast('Connexion au serveur impossible : vérifiez internet puis rechargez la page.', 'bad'); return false; }
-  FB.on = true;
+  FB.on = true; setupPwa();
   let redirectErr = '';
   try { await FB.auth.getRedirectResult(); } catch (e) { redirectErr = FB_ERR[e.code] || ''; }
   let user = await new Promise(r => { const un = FB.auth.onAuthStateChanged(u => { un(); r(u); }); });
@@ -339,6 +339,26 @@ async function signOutFirebase() {
   if (!(await confirmDialog({ title: 'Se déconnecter ?', message: 'Vous devrez saisir à nouveau votre email et votre mot de passe sur cet appareil.', confirmLabel: 'Se déconnecter', danger: false }))) return;
   try { localStorage.removeItem(PROFILE_KEY); localStorage.removeItem(LOCAL_USER); } catch (e) { /* ignore */ }
   await FB.auth.signOut(); StorageAdapter.clear(); location.reload();
+}
+/* ---- Installed app (phone / PC icon): service worker for instant start + install button ---- */
+let installEvt = null;
+function setupPwa() {
+  if (!FB.on || !('serviceWorker' in navigator) || (location.protocol !== 'https:' && location.hostname !== 'localhost')) return;
+  navigator.serviceWorker.register('sw.js').catch(() => { /* optional */ });
+  const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  if (standalone) return;
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e; showInstallChip(); });
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  let seen = false; try { seen = localStorage.getItem('stockpilot.iosHint') === '1'; } catch (x) { /* ignore */ }
+  if (ios && !seen) setTimeout(() => { toast('Pour l’icône sur l’écran : bouton Partager puis « Sur l’écran d’accueil ».', 'ok'); try { localStorage.setItem('stockpilot.iosHint', '1'); } catch (x) { /* ignore */ } }, 5000);
+}
+function showInstallChip() {
+  if ($('#installApp') || !installEvt) return;
+  const b = document.createElement('button'); b.id = 'installApp'; b.type = 'button'; b.className = 'install-chip';
+  b.innerHTML = `${ic('download')}<span>Installer l’application</span>`; hydrateIcons(b);
+  b.addEventListener('click', async () => { installEvt.prompt(); const r = await installEvt.userChoice.catch(() => null); if (r && r.outcome === 'accepted') { b.remove(); toast('Application installée : l’icône StockPilot est sur l’écran d’accueil', 'ok'); } installEvt = null; });
+  document.body.appendChild(b);
+  window.addEventListener('appinstalled', () => b.remove());
 }
 /** Weekly reminder to download a backup copy (Settings → Sauvegarder). */
 function backupReminder() {
