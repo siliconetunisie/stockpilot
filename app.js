@@ -2617,6 +2617,49 @@ const DATA_TASKS = [
     if (gone.length) { c.columns = c.columns.filter(x => !gone.includes(x.id)); c.updatedAt = new Date().toISOString(); Repo.raw().items.filter(i => i.categoryId === c.id).forEach(i => gone.forEach(g => delete i.values[g])); }
     return true;
   } },
+  { id: 'joints-pieces-de-rechange-2026-10-02', run() {
+    // Joints ajoutés au stock « Pièces de rechange / joint ». Un joint déjà présent ailleurs (même dimensions) : quantité ajoutée + mis en commun avec ce dossier.
+    const db = Repo.raw(); const cat = Repo.categories.get('cmuo1p9pap6qqs') || Repo.categories.list().find(c => !isFolder(c) && /^joints?$/i.test(c.name.trim()) && /pi[eè]ces? de rechange/i.test((Repo.categories.get(c.parentId) || {}).name || ''));
+    if (!cat) return false;
+    const colBy = (role, re) => cat.columns.find(c => c.role === role) || cat.columns.find(c => re.test(c.name || ''));
+    const cRef = colBy('reference', /r[ée]f/i), cName = colBy('name', /d[ée]signation|nom/i), cQty = colBy('quantity', /quantit/i);
+    if (!cName || !cQty) return false;
+    const now = new Date().toISOString(); const user = Repo.settings.get().user || 'Admin'; const ref = 'c:' + cat.id;
+    const dims = (s) => (String(s || '').replace(/,/g, '#').match(/\d+(?:#\d+)?(?:\/\d+(?:#\d+)?)?/g) || []).join('-');
+    const rows = [
+      ['JE-25-33-5', 'Joint d’étanchéité 25-33-5', 17], ['JL-25-33-5', 'Joint à lèvre 25-33-5', 5], ['JL-30-40-11', 'Joint à lèvre 30-40-11', 1], ['JL-25-35-7', 'Joint à lèvre 25-35-7', 1],
+      ['JL-30-40-7', 'Joint à lèvre 30-40-7', 1], ['JL-25-35-5,7', 'Joint à lèvre 25-35-5,7', 1],
+      ['JP-30-35-5/6,7', 'Joint pneumatique 30-35-5/6,7', 3], ['JP-20-28-5,7', 'Joint pneumatique 20-28-5,7', 1], ['JP-25-33-4,5/6', 'Joint pneumatique 25-33-4,5/6', 1],
+      ['JL-8-16-6', 'Joint à lèvre 8-16-6', 2], ['JL-4-10-4', 'Joint à lèvre 4-10-4', 18], ['JL-6-12-6', 'Joint à lèvre 6-12-6', 4], ['JL-6-14-8', 'Joint à lèvre 6-14-8', 1],
+      ['JL-8-14-6', 'Joint à lèvre 8-14-6', 4], ['JL-80-70-9', 'Joint à lèvre 80-70-9', 40], ['JL-55-70-13', 'Joint à lèvre 55-70-13', 2], ['JL-60-50-60', 'Joint à lèvre 60-50-60', 1]];
+    // joints déjà en stock dans un autre dossier (3 dimensions identiques, dans le même ordre)
+    const others = db.items.filter(i => i.categoryId !== cat.id).map(i => { const c = Repo.categories.get(i.categoryId); if (!c) return null;
+      const n = c.columns.find(x => x.role === 'name'), q = c.columns.find(x => x.role === 'quantity'); if (!n || !q) return null;
+      const txt = c.columns.filter(x => x.type === 'text' || x.type === 'reference' || x.role === 'name').map(x => i.values[x.id]).join(' ');
+      if (!/joint/i.test(txt + ' ' + c.name)) return null;
+      const ds = c.columns.filter(x => x.type === 'text' || x.role === 'name').map(x => dims(i.values[x.id])).filter(d => d.split('-').length >= 3);
+      return { i, c, n, q, ds }; }).filter(Boolean);
+    rows.forEach(([r, des, q], k) => {
+      const mid = 'm-jpr-' + (k + 1); if (db.movements.some(m => m.id === mid)) return;
+      const d = dims(des.replace(/^\D+/, ''));
+      const hit = des.startsWith('Joint à lèvre') ? others.find(o => o.ds.includes(d)) : null;
+      if (hit) {
+        const it = hit.i; const prev = Number(it.values[hit.q.id]) || 0; const next = prev + q; it.values[hit.q.id] = next;
+        let lc = hit.c.columns.find(x => x.type === 'link');
+        if (!lc) { lc = { id: 'f-link-' + hit.c.id, name: 'En commun avec', type: 'link', required: false, default: '', options: [], role: '', unit: '' }; hit.c.columns.push(lc); }
+        const L = Array.isArray(it.values[lc.id]) ? it.values[lc.id] : (it.values[lc.id] ? [it.values[lc.id]] : []); if (!L.includes(ref)) L.push(ref); it.values[lc.id] = L;
+        it.updatedAt = now;
+        db.movements.unshift({ id: mid, date: now, itemId: it.id, categoryId: hit.c.id, ref: (hit.c.columns.find(x => x.role === 'reference') ? it.values[hit.c.columns.find(x => x.role === 'reference').id] : '') || '', itemName: it.values[hit.n.id] || des, categoryName: hit.c.name, type: 'in', qty: q, prev, next, note: 'Entrée · ' + des + ' (pièces de rechange, article en commun)', location: '', user });
+        return;
+      }
+      const iid = 'i-jpr-' + (k + 1); if (db.items.some(i => i.id === iid)) return;
+      const values = { [cName.id]: des, [cQty.id]: q }; if (cRef) values[cRef.id] = r;
+      db.items.push({ id: iid, categoryId: cat.id, createdAt: now, updatedAt: now, values });
+      db.movements.unshift({ id: mid, date: now, itemId: iid, categoryId: cat.id, ref: r, itemName: des, categoryName: cat.name, type: 'initial', qty: q, prev: 0, next: q, note: 'Stock initial · pièces de rechange', location: '', user });
+    });
+    db.movements.sort((a, b) => b.date.localeCompare(a.date));
+    return true;
+  } },
 ];
 /** Applies pending one-time tasks; returns true when the data changed. */
 function runDataTasks() {
