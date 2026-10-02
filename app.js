@@ -2474,6 +2474,13 @@ const DATA_TASKS = [
     }
     return true;
   } },
+  { id: 'retirer-colonne-n-moule-embout-nasal-2026-10-02', run() {
+    // column "n" added by mistake on 2026-10-02 in Moule Embout Nasal
+    const c = Repo.categories.get('cmupi6wy2z3g8q'); if (!c) return false;
+    const gone = c.columns.filter(x => x.id === 'fmuqt5yitn6tyr' || (x.name || '').trim().toLowerCase() === 'n').map(x => x.id);
+    if (gone.length) { c.columns = c.columns.filter(x => !gone.includes(x.id)); c.updatedAt = new Date().toISOString(); Repo.raw().items.filter(i => i.categoryId === c.id).forEach(i => gone.forEach(g => delete i.values[g])); }
+    return true;
+  } },
 ];
 /** Applies pending one-time tasks; returns true when the data changed. */
 function runDataTasks() {
