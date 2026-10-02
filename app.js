@@ -2569,6 +2569,16 @@ function initGlobalSearch() {
    Small data additions requested by the user, applied once on the shared database (deterministic ids: safe if
    two devices run them at the same time). Each task records its id in settings.tasksDone. */
 const DATA_TASKS = [
+  { id: 'annuler-modifs-stock-16h38-16h53-2026-10-02', run() {
+    // Annule les modifications de quantité faites entre 16:38 et 16:53 (heure locale) le 02/10/2026 : retour à la quantité d'avant, mouvements retirés.
+    const db = Repo.raw();
+    [['i-jmen-6', 'mmur2m9xb49iw1', 26, 42], ['i-jmen-5', 'mmur2ohvi1rsmx', 2, 4], ['i-jmen-7', 'mmur2tx2i234l0', 35, 50], ['i-jmen-8', 'mmur2v5hgcgthy', 68, 111]].forEach(([iid, mid, prev, next]) => {
+      const it = db.items.find(i => i.id === iid);
+      if (it && Number(it.values['f-jmen-qty']) === next) { it.values['f-jmen-qty'] = prev; it.updatedAt = new Date().toISOString(); }
+      db.movements = db.movements.filter(m => m.id !== mid);
+    });
+    return true;
+  } },
   { id: 'joints-moule-embout-nasal-2026-10-02', run() {
     const parent = Repo.categories.list().find(c => !isFolder(c) && /embout\s*nasal/i.test(c.name) && /moule/i.test(c.name));
     if (!parent) return false;
