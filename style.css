@@ -728,3 +728,12 @@ table.data th{color:var(--ink-3)}
 .back-btn[hidden]{display:none}
 .back-btn svg{width:20px;height:20px}
 .back-btn:hover{background:color-mix(in srgb,var(--brand-blue,#1E5FD2) 10%,var(--surface))}
+.subcats{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;margin:0 0 18px}
+.subcat{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;border:1px solid var(--line);border-left:4px solid var(--c);background:var(--surface);color:var(--ink);cursor:pointer;text-align:left;box-shadow:var(--shadow)}
+.subcat:hover{border-color:var(--c)}
+.subcat .sc-ic{display:grid;place-items:center;width:38px;height:38px;border-radius:10px;background:color-mix(in srgb,var(--c) 14%,transparent);color:var(--c);flex:none}
+.subcat .sc-ic svg{width:20px;height:20px}
+.subcat .sc-t{display:flex;flex-direction:column;flex:1;min-width:0}
+.subcat .sc-t span{font-size:12.5px;color:var(--ink-3)}
+.subcat .sc-t em{color:var(--warn);font-style:normal;font-weight:600}
+.subcat .sc-go svg{width:18px;height:18px;transform:rotate(180deg);color:var(--ink-3)}

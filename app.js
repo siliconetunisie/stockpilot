@@ -1223,6 +1223,7 @@ function viewCategory(v) {
       <button class="btn btn-accent" id="addItem" type="button">${ic('plus')}Nouvel article</button>
       <button class="icon-btn" id="catMenu" data-menu type="button" aria-label="Plus d'actions">${ic('more')}</button>
     </div></div>
+  ${Repo.categories.children(cat.id).length ? `<div class="subcats">${Repo.categories.children(cat.id).map(sc => { const n = isFolder(sc) ? subtreeItems(sc).length : Repo.items.byCategory(sc.id).length; const al = Repo.items.byCategory(sc.id).filter(i => ['low', 'out'].includes(stockStatus(i))).length; return `<button type="button" class="subcat" data-subcat="${sc.id}" style="--c:${sc.color}"><span class="sc-ic">${ic('folder')}</span><span class="sc-t"><b>${esc(sc.name)}</b><span>${n} article${n > 1 ? 's' : ''}${al ? ` · <em>${al} alerte${al > 1 ? 's' : ''}</em>` : ''}</span></span><span class="sc-go">${ic('back')}</span></button>`; }).join('')}</div>` : ''}
   ${isMouldCat(cat) ? mouldHistoryHtml(cat) : ''}
   <div id="catShared"></div>
   <section class="panel">
@@ -1235,6 +1236,7 @@ function viewCategory(v) {
     <div id="catItems"></div>
   </section>`;
   bindMouldHistory(v);
+  $$('[data-subcat]', v).forEach(b => b.addEventListener('click', () => go('category', b.dataset.subcat)));
   const drawShared = () => {
     const shared = linkedFrom('c:' + cat.id); const box = $('#catShared', v);
     if (!shared.length) { box.innerHTML = ''; return; }
@@ -1982,7 +1984,7 @@ const MOULD_CL = ['Nettoyage circuit de matière', 'Nettoyage valve', 'Nettoyage
 
 const isMouldPath = (c) => !!c && catPath(c).some(x => /moule/i.test(x.name));
 /** Mould = a non-folder category in a "Moule" branch. */
-const isMouldCat = (c) => !!c && !isFolder(c) && isMouldPath(c);
+const isMouldCat = (c) => !!c && !isFolder(c) && isMouldPath(c) && !(c.parentId && !isFolder(Repo.categories.get(c.parentId)));
 const mouldCats = () => itemCats().filter(isMouldCat);
 /** The check-list applies only when the mould itself (a mould category) is chosen as equipment — not a part of it. */
 function isMouldRelated(ref) { return !!ref && ref[0] === 'c' && isMouldCat(Repo.categories.get(ref.slice(2))); }
@@ -2437,6 +2439,41 @@ function initGlobalSearch() {
   document.addEventListener('keydown', e => { if (e.key === '/' && !e.target.closest('input,textarea,select') && !Modal.top()) { e.preventDefault(); inp.focus(); } });
 }
 
+/* ======================= 11b. ONE-TIME DATA TASKS =======================
+   Small data additions requested by the user, applied once on the shared database (deterministic ids: safe if
+   two devices run them at the same time). Each task records its id in settings.tasksDone. */
+const DATA_TASKS = [
+  { id: 'joints-moule-embout-nasal-2026-10-02', run() {
+    const parent = Repo.categories.list().find(c => !isFolder(c) && /embout\s*nasal/i.test(c.name) && /moule/i.test(c.name));
+    if (!parent) return false;
+    const db = Repo.raw(); const cid = 'c-joints-men';
+    if (!Repo.categories.get(cid)) {
+      const col = (id, name, type, extra = {}) => Object.assign({ id, name, type, required: false, default: '', options: [], role: '', unit: '' }, extra);
+      db.categories.push({ id: cid, kind: 'items', parentId: parent.id, name: 'Joints', code: 'JNT', color: '#7A4DB5', description: 'Joints toriques et joints d’étanchéité du moule embout nasal.', createdAt: new Date().toISOString(),
+        columns: [col('f-jmen-ref', 'Référence', 'reference', { role: 'reference' }), col('f-jmen-des', 'Désignation', 'text', { role: 'name', required: true }), col('f-jmen-type', 'Type', 'dropdown', { options: ['Joint torique', 'Joint d’étanchéité'] }), col('f-jmen-dim', 'Dimension', 'text'),
+          col('f-jmen-qty', 'Quantité', 'quantity', { role: 'quantity', unit: 'pcs', default: 0 }), col('f-jmen-min', 'Stock min', 'number', { role: 'min', unit: 'pcs' }), col('f-jmen-loc', 'Emplacement', 'text', { role: 'location' }), col('f-jmen-link', 'En commun avec', 'link'), col('f-jmen-notes', 'Notes', 'longtext')] });
+    }
+    const rows = [['JT-5x2', 'Joint torique 5 × 2 mm', 'Joint torique', '5 × 2 mm', 32], ['JT-12x3', 'Joint torique 12 × 3 mm', 'Joint torique', '12 × 3 mm', 15], ['JT-22x2', 'Joint torique 22 × 2 mm', 'Joint torique', '22 × 2 mm', 32],
+      ['JT-14x2.5', 'Joint torique 14 × 2,5 mm', 'Joint torique', '14 × 2,5 mm', 14], ['JT-13x3', 'Joint torique 13 × 3 mm', 'Joint torique', '13 × 3 mm', 2], ['JT-40x2', 'Joint torique 40 × 2 mm', 'Joint torique', '40 × 2 mm', 16],
+      ['JE-4.10.4', 'Joint d’étanchéité 4.10.4', 'Joint d’étanchéité', '4.10.4', 15], ['JE-22.32.5', 'Joint d’étanchéité 22.32.5', 'Joint d’étanchéité', '22.32.5', 32]];
+    const now = new Date().toISOString(); const user = Repo.settings.get().user || 'Admin';
+    rows.forEach(([ref, des, type, dim, q], k) => {
+      const iid = 'i-jmen-' + (k + 1); if (db.items.some(i => i.id === iid)) return;
+      db.items.push({ id: iid, categoryId: cid, createdAt: now, updatedAt: now, values: { 'f-jmen-ref': ref, 'f-jmen-des': des, 'f-jmen-type': type, 'f-jmen-dim': dim, 'f-jmen-qty': q, 'f-jmen-min': '', 'f-jmen-loc': '', 'f-jmen-link': [], 'f-jmen-notes': '' } });
+      if (!db.movements.some(m => m.id === 'm-jmen-' + (k + 1))) db.movements.unshift({ id: 'm-jmen-' + (k + 1), date: now, itemId: iid, categoryId: cid, ref, itemName: des, categoryName: 'Joints', type: 'initial', qty: q, prev: 0, next: q, note: 'Stock initial · Moule Embout Nasal', location: '', user });
+    });
+    db.movements.sort((a, b) => b.date.localeCompare(a.date));
+    return true;
+  } },
+];
+/** Applies pending one-time tasks; returns true when the data changed. */
+function runDataTasks() {
+  const done = new Set(Repo.raw().settings.tasksDone || []); let changed = false;
+  DATA_TASKS.forEach(t => { if (done.has(t.id)) return; try { if (t.run()) { done.add(t.id); changed = true; } } catch (e) { /* retried next start */ } });
+  if (changed) { Repo.settings.update({ tasksDone: [...done] }); }
+  return changed;
+}
+
 /* ======================= 12. BOOT ======================= */
 /** Opening screen with the logo: stays at least 1.8 s, leaves once the data is connected (or after 5 s at most). */
 const Splash = (() => {
@@ -2462,7 +2499,7 @@ function boot() {
   $('#scrim').addEventListener('click', () => $('#app').classList.remove('nav-open'));
   initGlobalSearch(); readHash(); render();
   startFirebase().then(() => detectLan()).then(() => Cloud.connect(() => Repo.raw(), (fresh) => { Repo.adopt(fresh); applyTheme(); if (!Modal.top()) render(); else renderNav(); toast('Données mises à jour depuis un autre appareil', 'ok'); })
-    .then(remote => { if (remote) { Repo.adopt(remote); applyTheme(); readHash(); if (!Modal.top()) render(); } })
+    .then(remote => { if (remote) { Repo.adopt(remote); applyTheme(); readHash(); } if (runDataTasks() || remote) { if (!Modal.top()) render(); } })
     .finally(() => setTimeout(() => mpReminder(false), 2600))).finally(() => { Splash.hide('Prêt'); askPosteUser(); renderNav(); setTimeout(backupReminder, 4000); });
   setInterval(() => { renderMpBadge(); renderMpBar(); }, 10 * 60 * 1000);
 }
