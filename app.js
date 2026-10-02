@@ -1045,7 +1045,7 @@ function viewStock(v) {
   </section>`;
   const draw = () => {
     const q = st.q.trim().toLowerCase();
-    let rows = all.filter(i => (!st.cat || i.categoryId === st.cat) && (!st.status || stockStatus(i) === st.status) && (!q || (itemRef(i) + ' ' + itemName(i) + ' ' + itemLoc(i)).toLowerCase().includes(q)));
+    let rows = all.filter(i => (!st.cat || i.categoryId === st.cat || linkedFrom('c:' + st.cat).includes(i)) && (!st.status || stockStatus(i) === st.status) && (!q || (itemRef(i) + ' ' + itemName(i) + ' ' + itemLoc(i)).toLowerCase().includes(q)));
     const key = st.sort.key, dir = st.sort.dir; const rank = { out: 0, low: 1, ok: 2 };
     const val = (i) => ({ ref: itemRef(i), name: itemName(i), cat: catOf(i).name, qty: itemQty(i), min: itemMin(i), max: itemMax(i), loc: itemLoc(i), status: rank[stockStatus(i)], last: (lastMovement(i) || {}).date || '' }[key]);
     rows.sort((a, b) => cmp(val(a), val(b)) * dir || cmp(itemRef(a), itemRef(b)));
@@ -1240,7 +1240,7 @@ function viewCategory(v) {
   bindMouldHistory(v);
   $$('[data-subcat]', v).forEach(b => b.addEventListener('click', () => go('category', b.dataset.subcat)));
   const drawShared = () => {
-    const shared = linkedFrom('c:' + cat.id); const box = $('#catShared', v);
+    const shared = []; const box = $('#catShared', v);
     if (!shared.length) { box.innerHTML = ''; return; }
     box.innerHTML = `<section class="panel" style="margin-bottom:18px"><div class="panel-head"><h2>${ic('layers')} Articles en commun avec ${esc(cat.name)}</h2><span class="count-note">${shared.length} article${shared.length > 1 ? 's' : ''} rangé${shared.length > 1 ? 's' : ''} dans une autre catégorie</span></div>
       <div class="table-wrap"><table class="data"><thead><tr><th></th><th>Article</th><th>Rangé dans</th><th class="r">Qté</th><th>Emplacement</th><th>Statut</th></tr></thead><tbody>
@@ -1250,28 +1250,31 @@ function viewCategory(v) {
   };
   const draw = () => {
     const q = ui.q.trim().toLowerCase();
-    let rows = Repo.items.byCategory(cat.id).filter(i => !q || Object.values(i.values).some(x => typeof x !== 'boolean' && !(typeof x === 'string' && x.startsWith('data:')) && String(x).toLowerCase().includes(q)));
-    if (ui.sort.key) { const col = cat.columns.find(c => c.id === ui.sort.key); if (col) rows.sort((a, b) => cmp(a.values[col.id], b.values[col.id]) * ui.sort.dir); else if (ui.sort.key === '_status') { const r = { out: 0, low: 1, ok: 2, na: 3 }; rows.sort((a, b) => (r[stockStatus(a)] - r[stockStatus(b)]) * ui.sort.dir); } }
-    $('#catCount', v).textContent = `${rows.length} article${rows.length > 1 ? 's' : ''}`;
+    const sharedIds = new Set(linkedFrom('c:' + cat.id).filter(i => i.categoryId !== cat.id).map(i => i.id));
+    const hit = (i) => !q || Object.values(i.values).some(x => typeof x !== 'boolean' && !(typeof x === 'string' && x.startsWith('data:')) && String(x).toLowerCase().includes(q));
+    let rows = [...Repo.items.byCategory(cat.id), ...[...sharedIds].map(id => Repo.items.get(id))].filter(hit);
+    const val = (i, c) => sharedVal(i, c, cat);
+    if (ui.sort.key) { const col = cat.columns.find(c => c.id === ui.sort.key); if (col) rows.sort((a, b) => cmp(val(a, col), val(b, col)) * ui.sort.dir); else if (ui.sort.key === '_status') { const r = { out: 0, low: 1, ok: 2, na: 3 }; rows.sort((a, b) => (r[stockStatus(a)] - r[stockStatus(b)]) * ui.sort.dir); } }
+    const nSh = rows.filter(i => sharedIds.has(i.id)).length; $('#catCount', v).textContent = `${rows.length} article${rows.length > 1 ? 's' : ''}${nSh ? ` · dont ${nSh} en commun` : ''}`;
     const box = $('#catItems', v);
-    if (!Repo.items.byCategory(cat.id).length) { box.innerHTML = `<div class="empty"><b>Aucun article dans cette catégorie</b>Le formulaire se génère à partir des ${cat.columns.length} colonnes définies.<br><button class="btn btn-accent" id="emptyAdd" type="button">${ic('plus')}Ajouter le premier article</button></div>`; $('#emptyAdd', v).addEventListener('click', () => openItemForm(cat.id)); hydrateIcons(box); return; }
+    if (!Repo.items.byCategory(cat.id).length && !sharedIds.size) { box.innerHTML = `<div class="empty"><b>Aucun article dans cette catégorie</b>Le formulaire se génère à partir des ${cat.columns.length} colonnes définies.<br><button class="btn btn-accent" id="emptyAdd" type="button">${ic('plus')}Ajouter le premier article</button></div>`; $('#emptyAdd', v).addEventListener('click', () => openItemForm(cat.id)); hydrateIcons(box); return; }
     if (!rows.length) { box.innerHTML = '<div class="empty"><b>Aucun résultat</b>Aucun article ne contient ce texte.</div>'; return; }
     if (ui.mode === 'cards') {
       const kvCols = shownCols.filter(c => !['longtext', 'link'].includes(c.type) && c.role !== 'name' && c.role !== 'reference').slice(0, 4);
-      box.innerHTML = `<div class="cards">${rows.map(i => { const img = itemImage(i); return `<article class="icard ${ui.sel.has(i.id) ? 'selected' : ''}" data-item="${i.id}"><label class="icard-sel" title="Sélectionner"><input type="checkbox" data-sel="${i.id}" ${ui.sel.has(i.id) ? 'checked' : ''} aria-label="Sélectionner"></label><div class="pic">${img ? `<img src="${img}" alt="${esc(itemName(i))}">` : `<div class="ph" style="background:${cat.color}">${esc(cat.code)}</div>`}${stock ? statusBadge(stockStatus(i)) : ''}</div>
-        <div class="body">${itemRef(i) ? `<span><span class="ref">${esc(itemRef(i))}</span></span>` : ''}<div class="title">${esc(itemName(i))}</div>${linkCols(cat).map(lc => linkChips(i.values[lc.id], { empty: '' })).join('')}<div class="kv">${kvCols.map(c => `<span>${esc(c.name)}</span><b>${c.type === 'checkbox' ? (i.values[c.id] ? 'Oui' : 'Non') : c.type === 'date' ? fmtDate(i.values[c.id]) : (i.values[c.id] === undefined || i.values[c.id] === '' ? '—' : esc(i.values[c.id]) + (c.unit ? ' ' + esc(c.unit) : ''))}</b>`).join('')}</div></div>
+      box.innerHTML = `<div class="cards">${rows.map(i => { const img = itemImage(i); const sh = sharedIds.has(i.id); return `<article class="icard ${ui.sel.has(i.id) ? 'selected' : ''} ${sh ? 'shared' : ''}" data-item="${i.id}">${sh ? `<span class="shared-tag" title="Rangé dans ${esc(catLabel(catOf(i)))}">↔ Commun · ${esc(catOf(i).name)}</span>` : `<label class="icard-sel" title="Sélectionner"><input type="checkbox" data-sel="${i.id}" ${ui.sel.has(i.id) ? 'checked' : ''} aria-label="Sélectionner"></label>`}<div class="pic">${img ? `<img src="${img}" alt="${esc(itemName(i))}">` : `<div class="ph" style="background:${cat.color}">${esc(cat.code)}</div>`}${stock ? statusBadge(stockStatus(i)) : ''}</div>
+        <div class="body">${itemRef(i) ? `<span><span class="ref">${esc(itemRef(i))}</span></span>` : ''}<div class="title">${esc(itemName(i))}</div>${linkCols(cat).map(lc => linkChips(i.values[lc.id], { empty: '' })).join('')}<div class="kv">${kvCols.map(c => { const x = val(i, c); return `<span>${esc(c.name)}</span><b>${c.type === 'checkbox' ? (x ? 'Oui' : 'Non') : c.type === 'date' ? fmtDate(x) : (x === undefined || x === null || x === '' ? '—' : esc(x) + (c.unit ? ' ' + esc(c.unit) : ''))}</b>`; }).join('')}</div></div>
         <div class="foot"><span class="muted" style="font-size:12px">${relTime(i.updatedAt)}</span><button class="icon-btn small" data-menu="${i.id}" type="button" aria-label="Actions">${ic('more')}</button></div></article>`; }).join('')}</div>`;
     } else {
       const th = (id, l, cls = '') => `<th class="sortable ${cls}" data-sort="${id}">${esc(l)}<span class="arr">${ui.sort.key === id ? (ui.sort.dir > 0 ? '▲' : '▼') : ''}</span></th>`;
-      box.innerHTML = `<div class="table-wrap"><table class="data"><thead><tr><th class="selcell"><input type="checkbox" class="selall" aria-label="Tout sélectionner" ${rows.length && rows.every(i => ui.sel.has(i.id)) ? 'checked' : ''}></th>${imgCol ? '<th></th>' : ''}${shownCols.map(c => th(c.id, c.name + (c.unit ? ` (${c.unit})` : ''), ['number', 'quantity'].includes(c.type) ? 'r' : '')).join('')}${stock ? th('_status', 'Statut') : ''}<th></th></tr></thead><tbody>
-        ${rows.map(i => `<tr data-item="${i.id}" class="${ui.sel.has(i.id) ? 'selected' : ''}"><td class="selcell"><input type="checkbox" data-sel="${i.id}" ${ui.sel.has(i.id) ? 'checked' : ''} aria-label="Sélectionner"></td>${imgCol ? `<td style="width:48px">${thumbHtml(i)}</td>` : ''}${shownCols.map(c => `<td class="${['number', 'quantity'].includes(c.type) ? 'r' : ''} ${['text', 'longtext'].includes(c.type) ? 'clip' : ''}">${['number', 'quantity'].includes(c.type) ? displayValue(Object.assign({}, c, { unit: '' }), i.values[c.id], true) : displayValue(c, i.values[c.id], true)}</td>`).join('')}${stock ? `<td>${statusBadge(stockStatus(i))}</td>` : ''}<td class="actions"><button class="icon-btn small" data-menu="${i.id}" type="button" aria-label="Actions">${ic('more')}</button></td></tr>`).join('')}
+      box.innerHTML = `<div class="table-wrap"><table class="data"><thead><tr><th class="selcell"><input type="checkbox" class="selall" aria-label="Tout sélectionner" ${rows.some(i => !sharedIds.has(i.id)) && rows.filter(i => !sharedIds.has(i.id)).every(i => ui.sel.has(i.id)) ? 'checked' : ''}></th>${imgCol ? '<th></th>' : ''}${shownCols.map(c => th(c.id, c.name + (c.unit ? ` (${c.unit})` : ''), ['number', 'quantity'].includes(c.type) ? 'r' : '')).join('')}${stock ? th('_status', 'Statut') : ''}<th></th></tr></thead><tbody>
+        ${rows.map(i => { const sh = sharedIds.has(i.id); return `<tr data-item="${i.id}" class="${ui.sel.has(i.id) ? 'selected' : ''} ${sh ? 'shared' : ''}"><td class="selcell">${sh ? `<span class="shared-ic" title="Article en commun, rangé dans ${esc(catLabel(catOf(i)))}">↔</span>` : `<input type="checkbox" data-sel="${i.id}" ${ui.sel.has(i.id) ? 'checked' : ''} aria-label="Sélectionner">`}</td>${imgCol ? `<td style="width:48px">${thumbHtml(i)}</td>` : ''}${shownCols.map((c, k) => `<td class="${['number', 'quantity'].includes(c.type) ? 'r' : ''} ${['text', 'longtext'].includes(c.type) ? 'clip' : ''}">${['number', 'quantity'].includes(c.type) ? displayValue(Object.assign({}, c, { unit: '' }), val(i, c), true) : displayValue(c, val(i, c), true)}${sh && k === 0 ? ` <span class="shared-tag inline">↔ ${esc(catOf(i).name)}</span>` : ''}</td>`).join('')}${stock ? `<td>${statusBadge(stockStatus(i))}</td>` : ''}<td class="actions"><button class="icon-btn small" data-menu="${i.id}" type="button" aria-label="Actions">${ic('more')}</button></td></tr>`; }).join('')}
       </tbody></table></div>`;
       $$('th[data-sort]', box).forEach(h => h.addEventListener('click', () => { const k = h.dataset.sort; ui.sort = { key: k, dir: ui.sort.key === k ? -ui.sort.dir : 1 }; draw(); }));
     }
     hydrateIcons(box); bindCommon(box); bindLinkChips(box);
     $$('[data-menu]', box).forEach(b => b.addEventListener('click', e => { e.stopPropagation(); itemMenu(b, b.dataset.menu); }));
-    $$('[data-sel]', box).forEach(cb => { cb.addEventListener('click', e => e.stopPropagation()); cb.addEventListener('change', () => { cb.checked ? ui.sel.add(cb.dataset.sel) : ui.sel.delete(cb.dataset.sel); const row = cb.closest('[data-item]'); if (row) row.classList.toggle('selected', cb.checked); const all = $('.selall', box); if (all) all.checked = rows.every(i => ui.sel.has(i.id)); drawSelBar(); }); });
-    const all = $('.selall', box); if (all) all.addEventListener('change', () => { rows.forEach(i => all.checked ? ui.sel.add(i.id) : ui.sel.delete(i.id)); draw(); });
+    $$('[data-sel]', box).forEach(cb => { cb.addEventListener('click', e => e.stopPropagation()); cb.addEventListener('change', () => { cb.checked ? ui.sel.add(cb.dataset.sel) : ui.sel.delete(cb.dataset.sel); const row = cb.closest('[data-item]'); if (row) row.classList.toggle('selected', cb.checked); const all = $('.selall', box); if (all) all.checked = rows.filter(i => !sharedIds.has(i.id)).every(i => ui.sel.has(i.id)); drawSelBar(); }); });
+    const all = $('.selall', box); if (all) all.addEventListener('change', () => { rows.filter(i => !sharedIds.has(i.id)).forEach(i => all.checked ? ui.sel.add(i.id) : ui.sel.delete(i.id)); draw(); });
     drawSelBar();
   };
   /* selection bar: move several articles at once */
@@ -1280,9 +1283,10 @@ function viewCategory(v) {
     let bar = $('#selBar'); const n = ui.sel.size;
     if (!n) { if (bar) bar.remove(); return; }
     if (!bar) { bar = document.createElement('div'); bar.id = 'selBar'; bar.className = 'sel-bar'; document.body.appendChild(bar); }
-    bar.innerHTML = `<b>${n}</b><span>article${n > 1 ? 's' : ''} sélectionné${n > 1 ? 's' : ''}</span><button class="btn btn-sm btn-accent" type="button" data-sb="move">${ic('folder')}Déplacer vers…</button><button class="btn btn-sm" type="button" data-sb="all">Tout sélectionner</button><button class="icon-btn small" type="button" data-sb="clear" aria-label="Annuler la sélection">${ic('x')}</button>`;
+    bar.innerHTML = `<b>${n}</b><span>article${n > 1 ? 's' : ''} sélectionné${n > 1 ? 's' : ''}</span><button class="btn btn-sm btn-accent" type="button" data-sb="move">${ic('folder')}Déplacer vers…</button><button class="btn btn-sm" type="button" data-sb="link">↔ En commun avec…</button><button class="btn btn-sm" type="button" data-sb="all">Tout sélectionner</button><button class="icon-btn small" type="button" data-sb="clear" aria-label="Annuler la sélection">${ic('x')}</button>`;
     hydrateIcons(bar);
     $('[data-sb="move"]', bar).addEventListener('click', () => openMoveDialog([...ui.sel], cat.id, () => { ui.sel.clear(); }));
+    $('[data-sb="link"]', bar).addEventListener('click', () => openLinkDialog([...ui.sel], cat.id, () => { ui.sel.clear(); }));
     $('[data-sb="all"]', bar).addEventListener('click', () => { Repo.items.byCategory(cat.id).forEach(i => ui.sel.add(i.id)); draw(); });
     $('[data-sb="clear"]', bar).addEventListener('click', () => { ui.sel.clear(); draw(); });
   };
@@ -1305,6 +1309,7 @@ function itemMenu(anchor, itemId) {
     { label: 'Modifier', icon: 'edit', onClick: () => openItemForm(it.categoryId, itemId) },
     { label: 'Dupliquer', icon: 'copy', onClick: () => duplicateItem(itemId) },
     { label: 'Déplacer vers…', icon: 'folder', onClick: () => openMoveDialog([itemId], it.categoryId) },
+    { label: 'En commun avec…', icon: 'layers', onClick: () => openLinkDialog([itemId], it.categoryId) },
     ...(stock ? [{ label: 'Mouvement de stock', icon: 'swap', onClick: () => openMovementForm(itemId) }] : []),
     'sep', { label: 'Supprimer', icon: 'trash', danger: true, onClick: () => deleteItem(itemId) },
   ]);
@@ -2090,6 +2095,36 @@ function mouldHistoryHtml(cat) {
 function bindMouldHistory(root) {
   $$('[data-clnew]', root).forEach(b => b.addEventListener('click', () => openFicheForm(null, { equipment: ['c:' + b.dataset.clnew], type: 'MP', status: 'progress', natures: ['Mécanique'], description: 'Maintenance moule — check-list' })));
   $$('tr[data-fi]', root).forEach(r => r.addEventListener('click', () => openFicheDetail(r.dataset.fi)));
+}
+
+/** Value of a (possibly shared) article for a column of the category being displayed. */
+function sharedVal(item, col, cat) {
+  if (item.categoryId === cat.id) return item.values[col.id];
+  const src = catOf(item); if (!src) return undefined;
+  let sc = col.role ? roleCol(src, col.role) : null;
+  if (!sc) sc = src.columns.find(x => normName(x.name) === normName(col.name));
+  if (!sc && ['image', 'link'].includes(col.type)) sc = src.columns.find(x => x.type === col.type);
+  return sc ? item.values[sc.id] : undefined;
+}
+/** Links articles to another category ("En commun avec"): they stay where they are, are listed there too, and their stock is counted once. */
+function linkItemsTo(ids, ref) {
+  let n = 0;
+  ids.forEach(id => {
+    const it = Repo.items.get(id); const c = it && catOf(it); if (!c || ref === 'c:' + c.id) return;
+    let lc = c.columns.find(x => x.type === 'link');
+    if (!lc) { lc = { id: uid('f'), name: 'En commun avec', type: 'link', required: false, default: '', options: [], role: '', unit: '' }; const li = c.columns.findIndex(x => x.role === 'location'); c.columns.splice(li >= 0 ? li + 1 : c.columns.length, 0, lc); }
+    const cur = Array.isArray(it.values[lc.id]) ? it.values[lc.id] : [];
+    if (!cur.includes(ref)) { it.values[lc.id] = [...cur, ref]; it.updatedAt = new Date().toISOString(); n++; }
+  });
+  if (n) Repo.commit();
+  return n;
+}
+function openLinkDialog(ids, fromCatId, onDone) {
+  const targets = itemCats().filter(c => c.id !== fromCatId);
+  const m = Modal.open({ title: `Mettre en commun ${ids.length} article${ids.length > 1 ? 's' : ''}`, sub: 'Les articles restent à leur place et apparaissent aussi dans la catégorie choisie. Le stock est compté une seule fois.', size: 'narrow',
+    body: `<div class="fg"><label for="lkTarget">En commun avec</label><select class="select full" id="lkTarget">${targets.map(c => `<option value="c:${c.id}">${esc(catLabel(c))}</option>`).join('')}</select></div>`,
+    foot: `<button class="btn" data-close type="button">Annuler</button><button class="btn btn-accent" id="lkGo" type="button">↔ Mettre en commun</button>` });
+  $('#lkGo', m.el).addEventListener('click', () => { const ref = $('#lkTarget', m.el).value; const n = linkItemsTo(ids, ref); m.close(); onDone && onDone(); const t = refLabel(ref); toast(n ? `${n} article${n > 1 ? 's' : ''} en commun avec ${t ? t.name : ''}` : 'Déjà en commun', 'ok'); render(); });
 }
 
 /* ======================= 10e. DÉPLACER DES ARTICLES =======================
