@@ -401,6 +401,7 @@ const Repo = (() => {
       return db;
     },
     raw: () => db,
+    commit() { persist(); },
     replace(newDb) { db = newDb; migrate(db); persist(); },
     /** Takes a database coming from the cloud without pushing it back. */
     adopt(remoteDb) { db = remoteDb; db.settings = Object.assign({ company: 'Tunisie Silicone', user: 'Admin', theme: 'system' }, db.settings || {}); const changed = migrate(db); StorageAdapter.save(db); if (changed) Cloud.schedule(); },
@@ -873,7 +874,7 @@ const state = {
 const OPEN_KEY = 'stockpilot.tree.open';
 state.open = (() => { try { const r = JSON.parse(localStorage.getItem(OPEN_KEY)); if (Array.isArray(r)) return new Set(r); } catch (e) { /* ignore */ } return null; })();
 function saveOpen() { try { localStorage.setItem(OPEN_KEY, JSON.stringify([...state.open])); } catch (e) { /* ignore */ } }
-function catUI(id) { return state.cat[id] || (state.cat[id] = { q: '', mode: 'table', sort: { key: null, dir: 1 } }); }
+function catUI(id) { const u = state.cat[id] || (state.cat[id] = { q: '', mode: 'table', sort: { key: null, dir: 1 } }); if (!u.sel) u.sel = new Set(); return u; }
 
 function go(view, catId = null) {
   state.view = view; state.catId = catId;
@@ -935,6 +936,7 @@ function renderCrumbs() {
 function render() {
   if (state.view === 'category' && !Repo.categories.get(state.catId)) state.view = 'categories';
   renderNav(); renderCrumbs(); renderMpBar();
+  if (state.view !== 'category') { const sb = $('#selBar'); if (sb) sb.remove(); }
   const v = $('#view');
   const viewFn = state.view === 'category' && isFolder(Repo.categories.get(state.catId)) ? viewFolder : ({ maintenance: viewMaintenance, interventions: viewInterventions, dashboard: viewDashboard, stock: viewStock, journal: viewJournal, categories: viewCategories, category: viewCategory, settings: viewSettings }[state.view] || viewCategories);
   viewFn(v);
@@ -1256,18 +1258,33 @@ function viewCategory(v) {
     if (!rows.length) { box.innerHTML = '<div class="empty"><b>Aucun résultat</b>Aucun article ne contient ce texte.</div>'; return; }
     if (ui.mode === 'cards') {
       const kvCols = shownCols.filter(c => !['longtext', 'link'].includes(c.type) && c.role !== 'name' && c.role !== 'reference').slice(0, 4);
-      box.innerHTML = `<div class="cards">${rows.map(i => { const img = itemImage(i); return `<article class="icard" data-item="${i.id}"><div class="pic">${img ? `<img src="${img}" alt="${esc(itemName(i))}">` : `<div class="ph" style="background:${cat.color}">${esc(cat.code)}</div>`}${stock ? statusBadge(stockStatus(i)) : ''}</div>
+      box.innerHTML = `<div class="cards">${rows.map(i => { const img = itemImage(i); return `<article class="icard ${ui.sel.has(i.id) ? 'selected' : ''}" data-item="${i.id}"><label class="icard-sel" title="Sélectionner"><input type="checkbox" data-sel="${i.id}" ${ui.sel.has(i.id) ? 'checked' : ''} aria-label="Sélectionner"></label><div class="pic">${img ? `<img src="${img}" alt="${esc(itemName(i))}">` : `<div class="ph" style="background:${cat.color}">${esc(cat.code)}</div>`}${stock ? statusBadge(stockStatus(i)) : ''}</div>
         <div class="body">${itemRef(i) ? `<span><span class="ref">${esc(itemRef(i))}</span></span>` : ''}<div class="title">${esc(itemName(i))}</div>${linkCols(cat).map(lc => linkChips(i.values[lc.id], { empty: '' })).join('')}<div class="kv">${kvCols.map(c => `<span>${esc(c.name)}</span><b>${c.type === 'checkbox' ? (i.values[c.id] ? 'Oui' : 'Non') : c.type === 'date' ? fmtDate(i.values[c.id]) : (i.values[c.id] === undefined || i.values[c.id] === '' ? '—' : esc(i.values[c.id]) + (c.unit ? ' ' + esc(c.unit) : ''))}</b>`).join('')}</div></div>
         <div class="foot"><span class="muted" style="font-size:12px">${relTime(i.updatedAt)}</span><button class="icon-btn small" data-menu="${i.id}" type="button" aria-label="Actions">${ic('more')}</button></div></article>`; }).join('')}</div>`;
     } else {
       const th = (id, l, cls = '') => `<th class="sortable ${cls}" data-sort="${id}">${esc(l)}<span class="arr">${ui.sort.key === id ? (ui.sort.dir > 0 ? '▲' : '▼') : ''}</span></th>`;
-      box.innerHTML = `<div class="table-wrap"><table class="data"><thead><tr>${imgCol ? '<th></th>' : ''}${shownCols.map(c => th(c.id, c.name + (c.unit ? ` (${c.unit})` : ''), ['number', 'quantity'].includes(c.type) ? 'r' : '')).join('')}${stock ? th('_status', 'Statut') : ''}<th></th></tr></thead><tbody>
-        ${rows.map(i => `<tr data-item="${i.id}">${imgCol ? `<td style="width:48px">${thumbHtml(i)}</td>` : ''}${shownCols.map(c => `<td class="${['number', 'quantity'].includes(c.type) ? 'r' : ''} ${['text', 'longtext'].includes(c.type) ? 'clip' : ''}">${['number', 'quantity'].includes(c.type) ? displayValue(Object.assign({}, c, { unit: '' }), i.values[c.id], true) : displayValue(c, i.values[c.id], true)}</td>`).join('')}${stock ? `<td>${statusBadge(stockStatus(i))}</td>` : ''}<td class="actions"><button class="icon-btn small" data-menu="${i.id}" type="button" aria-label="Actions">${ic('more')}</button></td></tr>`).join('')}
+      box.innerHTML = `<div class="table-wrap"><table class="data"><thead><tr><th class="selcell"><input type="checkbox" class="selall" aria-label="Tout sélectionner" ${rows.length && rows.every(i => ui.sel.has(i.id)) ? 'checked' : ''}></th>${imgCol ? '<th></th>' : ''}${shownCols.map(c => th(c.id, c.name + (c.unit ? ` (${c.unit})` : ''), ['number', 'quantity'].includes(c.type) ? 'r' : '')).join('')}${stock ? th('_status', 'Statut') : ''}<th></th></tr></thead><tbody>
+        ${rows.map(i => `<tr data-item="${i.id}" class="${ui.sel.has(i.id) ? 'selected' : ''}"><td class="selcell"><input type="checkbox" data-sel="${i.id}" ${ui.sel.has(i.id) ? 'checked' : ''} aria-label="Sélectionner"></td>${imgCol ? `<td style="width:48px">${thumbHtml(i)}</td>` : ''}${shownCols.map(c => `<td class="${['number', 'quantity'].includes(c.type) ? 'r' : ''} ${['text', 'longtext'].includes(c.type) ? 'clip' : ''}">${['number', 'quantity'].includes(c.type) ? displayValue(Object.assign({}, c, { unit: '' }), i.values[c.id], true) : displayValue(c, i.values[c.id], true)}</td>`).join('')}${stock ? `<td>${statusBadge(stockStatus(i))}</td>` : ''}<td class="actions"><button class="icon-btn small" data-menu="${i.id}" type="button" aria-label="Actions">${ic('more')}</button></td></tr>`).join('')}
       </tbody></table></div>`;
       $$('th[data-sort]', box).forEach(h => h.addEventListener('click', () => { const k = h.dataset.sort; ui.sort = { key: k, dir: ui.sort.key === k ? -ui.sort.dir : 1 }; draw(); }));
     }
     hydrateIcons(box); bindCommon(box); bindLinkChips(box);
     $$('[data-menu]', box).forEach(b => b.addEventListener('click', e => { e.stopPropagation(); itemMenu(b, b.dataset.menu); }));
+    $$('[data-sel]', box).forEach(cb => { cb.addEventListener('click', e => e.stopPropagation()); cb.addEventListener('change', () => { cb.checked ? ui.sel.add(cb.dataset.sel) : ui.sel.delete(cb.dataset.sel); const row = cb.closest('[data-item]'); if (row) row.classList.toggle('selected', cb.checked); const all = $('.selall', box); if (all) all.checked = rows.every(i => ui.sel.has(i.id)); drawSelBar(); }); });
+    const all = $('.selall', box); if (all) all.addEventListener('change', () => { rows.forEach(i => all.checked ? ui.sel.add(i.id) : ui.sel.delete(i.id)); draw(); });
+    drawSelBar();
+  };
+  /* selection bar: move several articles at once */
+  const drawSelBar = () => {
+    [...ui.sel].forEach(id => { const it = Repo.items.get(id); if (!it || it.categoryId !== cat.id) ui.sel.delete(id); });
+    let bar = $('#selBar'); const n = ui.sel.size;
+    if (!n) { if (bar) bar.remove(); return; }
+    if (!bar) { bar = document.createElement('div'); bar.id = 'selBar'; bar.className = 'sel-bar'; document.body.appendChild(bar); }
+    bar.innerHTML = `<b>${n}</b><span>article${n > 1 ? 's' : ''} sélectionné${n > 1 ? 's' : ''}</span><button class="btn btn-sm btn-accent" type="button" data-sb="move">${ic('folder')}Déplacer vers…</button><button class="btn btn-sm" type="button" data-sb="all">Tout sélectionner</button><button class="icon-btn small" type="button" data-sb="clear" aria-label="Annuler la sélection">${ic('x')}</button>`;
+    hydrateIcons(bar);
+    $('[data-sb="move"]', bar).addEventListener('click', () => openMoveDialog([...ui.sel], cat.id, () => { ui.sel.clear(); }));
+    $('[data-sb="all"]', bar).addEventListener('click', () => { Repo.items.byCategory(cat.id).forEach(i => ui.sel.add(i.id)); draw(); });
+    $('[data-sb="clear"]', bar).addEventListener('click', () => { ui.sel.clear(); draw(); });
   };
   drawShared();
   $('#catQ', v).addEventListener('input', debounce(e => { ui.q = e.target.value; draw(); }));
@@ -1287,6 +1304,7 @@ function itemMenu(anchor, itemId) {
     { label: 'Voir le détail', icon: 'eye', onClick: () => openItemDetail(itemId) },
     { label: 'Modifier', icon: 'edit', onClick: () => openItemForm(it.categoryId, itemId) },
     { label: 'Dupliquer', icon: 'copy', onClick: () => duplicateItem(itemId) },
+    { label: 'Déplacer vers…', icon: 'folder', onClick: () => openMoveDialog([itemId], it.categoryId) },
     ...(stock ? [{ label: 'Mouvement de stock', icon: 'swap', onClick: () => openMovementForm(itemId) }] : []),
     'sep', { label: 'Supprimer', icon: 'trash', danger: true, onClick: () => deleteItem(itemId) },
   ]);
@@ -2072,6 +2090,79 @@ function mouldHistoryHtml(cat) {
 function bindMouldHistory(root) {
   $$('[data-clnew]', root).forEach(b => b.addEventListener('click', () => openFicheForm(null, { equipment: ['c:' + b.dataset.clnew], type: 'MP', status: 'progress', natures: ['Mécanique'], description: 'Maintenance moule — check-list' })));
   $$('tr[data-fi]', root).forEach(r => r.addEventListener('click', () => openFicheDetail(r.dataset.fi)));
+}
+
+/* ======================= 10e. DÉPLACER DES ARTICLES =======================
+   Moves articles to another category (or to a new sub-category). Values follow by column role, then by column
+   name; a column the target lacks is added to it, so nothing is lost. */
+const normName = (x) => String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+function planMove(ids, target) {
+  const add = []; const map = new Map(); // srcCatId -> {srcColId: targetColId}
+  ids.map(id => Repo.items.get(id)).filter(Boolean).forEach(it => {
+    const src = catOf(it); if (!src || map.has(src.id)) return; const m = {};
+    src.columns.forEach(sc => {
+      let tc = sc.role ? target.columns.find(x => x.role === sc.role) : null;
+      if (!tc) tc = target.columns.find(x => normName(x.name) === normName(sc.name) && (x.type === sc.type || (['number', 'quantity'].includes(x.type) && ['number', 'quantity'].includes(sc.type)) || (['text', 'longtext', 'reference', 'dropdown'].includes(x.type) && ['text', 'longtext', 'reference', 'dropdown'].includes(sc.type))));
+      if (!tc && ['image', 'link'].includes(sc.type)) tc = target.columns.find(x => x.type === sc.type);
+      if (!tc) tc = add.find(a => normName(a.name) === normName(sc.name) && a.type === sc.type);
+      if (!tc) { const used = ids.some(id => { const i = Repo.items.get(id); return i && i.categoryId === src.id && ![undefined, null, ''].includes(i.values[sc.id]) && !(Array.isArray(i.values[sc.id]) && !i.values[sc.id].length); }); if (!used) return;
+        tc = Object.assign(clone(sc), { id: uid('f'), role: sc.role && !target.columns.some(x => x.role === sc.role) ? sc.role : '' }); add.push(tc); }
+      m[sc.id] = tc.id;
+    });
+    map.set(src.id, m);
+  });
+  return { add, map };
+}
+function moveItems(ids, targetId) {
+  const target = Repo.categories.get(targetId); if (!target) return 0;
+  const { add, map } = planMove(ids, target);
+  add.forEach(c => target.columns.push(c));
+  let n = 0; const now = new Date().toISOString();
+  ids.forEach(id => {
+    const it = Repo.items.get(id); if (!it || it.categoryId === targetId) return; const m = map.get(it.categoryId) || {};
+    const v = {}; Object.entries(m).forEach(([s, t]) => { const tc = target.columns.find(x => x.id === t); if (it.values[s] !== undefined && tc) v[t] = castValue(tc, it.values[s]); });
+    it.values = v; it.categoryId = targetId; it.updatedAt = now; n++;
+    Repo.journal.list().forEach(mv => { if (mv.itemId === id) { mv.categoryId = targetId; mv.categoryName = target.name; } });
+  });
+  if (n) Repo.commit();
+  return n;
+}
+function openMoveDialog(ids, fromCatId, onDone) {
+  const from = Repo.categories.get(fromCatId); const targets = itemCats().filter(c => c.id !== fromCatId);
+  const parents = [from, ...Repo.categories.list().filter(c => c.id !== fromCatId)].filter(Boolean);
+  const m = Modal.open({
+    title: `Déplacer ${ids.length} article${ids.length > 1 ? 's' : ''}`, sub: from ? `Depuis ${esc(catLabel(from))}` : '', size: 'narrow',
+    body: `<div class="mv-opts">
+      <label class="mv-opt"><input type="radio" name="mvMode" value="exist" ${targets.length ? 'checked' : 'disabled'}><span><b>Dans une catégorie existante</b></span></label>
+      <select class="select full" id="mvTarget" ${targets.length ? '' : 'disabled'}>${targets.map(c => `<option value="${c.id}">${esc(catLabel(c))}</option>`).join('')}</select>
+      <label class="mv-opt"><input type="radio" name="mvMode" value="new" ${targets.length ? '' : 'checked'}><span><b>Dans un nouveau sous-dossier</b><span class="muted">mêmes colonnes que ${esc(from ? from.name : '')}</span></span></label>
+      <div class="mv-new"><input class="input" id="mvName" placeholder="Nom (ex. Joints, Résistances…)"><select class="select full" id="mvParent">${parents.map(c => `<option value="${c.id}">Dans : ${esc(catLabel(c))}</option>`).join('')}</select></div>
+      <div class="mv-note muted" id="mvNote"></div></div>`,
+    foot: `<button class="btn" data-close type="button">Annuler</button><button class="btn btn-accent" id="mvGo" type="button">${ic('folder')}Déplacer</button>`,
+  });
+  const mode = () => ($('[name=mvMode]:checked', m.el) || {}).value;
+  const note = () => {
+    const el = $('#mvNote', m.el);
+    if (mode() === 'exist') { const t = Repo.categories.get($('#mvTarget', m.el).value); const { add } = t ? planMove(ids, t) : { add: [] }; el.textContent = add.length ? `Colonnes ajoutées à « ${t.name} » pour ne rien perdre : ${add.map(c => c.name).join(', ')}.` : 'Toutes les informations ont une colonne correspondante.'; }
+    else el.textContent = 'Le sous-dossier est créé avec les colonnes de la catégorie actuelle.';
+  };
+  $$('[name=mvMode]', m.el).forEach(r => r.addEventListener('change', note)); $('#mvTarget', m.el).addEventListener('change', () => { $('[value=exist]', m.el).checked = true; note(); });
+  $('#mvName', m.el).addEventListener('focus', () => { $('[value=new]', m.el).checked = true; note(); });
+  note();
+  $('#mvGo', m.el).addEventListener('click', () => {
+    let targetId = $('#mvTarget', m.el).value;
+    if (mode() === 'new') {
+      const name = $('#mvName', m.el).value.trim(); if (!name) { toast('Donnez un nom au sous-dossier.', 'bad'); $('#mvName', m.el).focus(); return; }
+      const parentId = $('#mvParent', m.el).value; const tpl = from || Repo.categories.get(Repo.items.get(ids[0]).categoryId);
+      const cols = tpl.columns.map(c => Object.assign(clone(c), { id: uid('f') }));
+      const nc = Repo.categories.create({ kind: 'items', parentId, name, color: (Repo.categories.get(parentId) || {}).color || PALETTE[Repo.categories.list().length % PALETTE.length], columns: cols, description: '' });
+      // map by position: same column structure
+      targetId = nc.id;
+    }
+    const target = Repo.categories.get(targetId);
+    const n = moveItems(ids, targetId); m.close(); onDone && onDone();
+    toast(`${n} article${n > 1 ? 's' : ''} déplacé${n > 1 ? 's' : ''} vers ${target.name}`, 'ok'); render();
+  });
 }
 
 /* ======================= 11. FORMS ======================= */
