@@ -2450,7 +2450,7 @@ const DATA_TASKS = [
     if (!Repo.categories.get(cid)) {
       const col = (id, name, type, extra = {}) => Object.assign({ id, name, type, required: false, default: '', options: [], role: '', unit: '' }, extra);
       db.categories.push({ id: cid, kind: 'items', parentId: parent.id, name: 'Joints', code: 'JNT', color: '#7A4DB5', description: 'Joints toriques et joints d’étanchéité du moule embout nasal.', createdAt: new Date().toISOString(),
-        columns: [col('f-jmen-ref', 'Référence', 'reference', { role: 'reference' }), col('f-jmen-des', 'Désignation', 'text', { role: 'name', required: true }), col('f-jmen-type', 'Type', 'dropdown', { options: ['Joint torique', 'Joint d’étanchéité'] }), col('f-jmen-dim', 'Dimension', 'text'),
+        columns: [col('f-jmen-ref', 'Référence', 'reference', { role: 'reference' }), col('f-jmen-des', 'Désignation', 'text', { role: 'name', required: true }), col('f-jmen-type', 'Type', 'dropdown', { options: ['Joint torique', 'Joint d’étanchéité'] }), col('f-jmen-dim', 'Dimension', 'text'), col('f-jmen-photo', 'Photo', 'image'),
           col('f-jmen-qty', 'Quantité', 'quantity', { role: 'quantity', unit: 'pcs', default: 0 }), col('f-jmen-min', 'Stock min', 'number', { role: 'min', unit: 'pcs' }), col('f-jmen-loc', 'Emplacement', 'text', { role: 'location' }), col('f-jmen-link', 'En commun avec', 'link'), col('f-jmen-notes', 'Notes', 'longtext')] });
     }
     const rows = [['JT-5x2', 'Joint torique 5 × 2 mm', 'Joint torique', '5 × 2 mm', 32], ['JT-12x3', 'Joint torique 12 × 3 mm', 'Joint torique', '12 × 3 mm', 15], ['JT-22x2', 'Joint torique 22 × 2 mm', 'Joint torique', '22 × 2 mm', 32],
@@ -2463,6 +2463,15 @@ const DATA_TASKS = [
       if (!db.movements.some(m => m.id === 'm-jmen-' + (k + 1))) db.movements.unshift({ id: 'm-jmen-' + (k + 1), date: now, itemId: iid, categoryId: cid, ref, itemName: des, categoryName: 'Joints', type: 'initial', qty: q, prev: 0, next: q, note: 'Stock initial · Moule Embout Nasal', location: '', user });
     });
     db.movements.sort((a, b) => b.date.localeCompare(a.date));
+    return true;
+  } },
+  { id: 'joints-moule-embout-nasal-photo-2026-10-02', run() {
+    const c = Repo.categories.get('c-joints-men'); if (!c) return false;
+    if (!c.columns.some(x => x.type === 'image')) {
+      const i = c.columns.findIndex(x => x.id === 'f-jmen-dim');
+      c.columns.splice(i >= 0 ? i + 1 : c.columns.length, 0, { id: 'f-jmen-photo', name: 'Photo', type: 'image', required: false, default: '', options: [], role: '', unit: '' });
+      c.updatedAt = new Date().toISOString();
+    }
     return true;
   } },
 ];
