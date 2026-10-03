@@ -1,5 +1,5 @@
 /* StockPilot : démarrage instantané (copie locale de l'application, mise à jour en arrière-plan) */
-const CACHE = 'stockpilot-20261003094620';
+const CACHE = 'stockpilot-20261003095530';
 const ASSETS = ['./', 'index.html', 'app.js', 'style.css', 'logo-tunisie-silicone.png', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'vendor/firebase-app-compat.js', 'vendor/firebase-auth-compat.js', 'vendor/firebase-firestore-compat.js'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
