@@ -474,6 +474,11 @@ const Repo = (() => {
     }
     if (d.schemaVersion < 4) { if (!Array.isArray(d.mp) || !d.mp.length) d.mp = seedMaintenance(d); d.schemaVersion = 4; changed = true; }
     if (!Array.isArray(d.mp)) d.mp = [];
+    // Articles supprimés définitivement : retirés aussi s'ils reviennent d'un appareil qui avait une ancienne copie.
+    const PURGED = /^[im]-jpr2-/;
+    if ((d.items || []).some(i => PURGED.test(i.id)) || (d.movements || []).some(m => PURGED.test(m.id))) {
+      d.items = d.items.filter(i => !PURGED.test(i.id)); d.movements = d.movements.filter(m => !PURGED.test(m.id)); changed = true;
+    }
     return changed;
   }
   function migrateV2(d) {
