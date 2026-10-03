@@ -2651,6 +2651,16 @@ const DATA_TASKS = [
     });
     return true;
   } },
+  { id: 'supprimer-doublons-joints-pieces-2026-10-03', run() {
+    // Retire les joints créés une 2e fois (i-jpr2-*) et l'entrée de +18 en double sur le joint 4.10.4. Les Joints DHS (i-jpr-*) restent.
+    const db = Repo.raw();
+    const dup = db.movements.find(m => m.id === 'm-jpr2-11');
+    if (dup) { const it = db.items.find(i => i.id === dup.itemId); const c = it && Repo.categories.get(it.categoryId); const q = c && c.columns.find(x => x.role === 'quantity');
+      if (q) { const cur = Number(it.values[q.id]) || 0; it.values[q.id] = cur === dup.next ? dup.prev : Math.max(0, cur - dup.qty); it.updatedAt = new Date().toISOString(); } }
+    db.items = db.items.filter(i => !/^i-jpr2-/.test(i.id));
+    db.movements = db.movements.filter(m => !/^m-jpr2-/.test(m.id));
+    return true;
+  } },
 ];
 /** Applies pending one-time tasks; returns true when the data changed. */
 function runDataTasks() {
