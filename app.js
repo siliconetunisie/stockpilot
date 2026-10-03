@@ -121,6 +121,46 @@ const StorageAdapter = (() => {
 const Cloud = (() => {
   let db = null; let getDb = null; let timer = null; let flushing = false; let pending = false; let lastRev = 0; let mergeOnce = false; let onRemoteCb = null;
   const clientId = uid('k'); const last = new Map();
+  /* Sécurité de synchronisation :
+     - chaque article / catégorie / mouvement modifié reçoit _t (heure de la modification sur l'appareil) ;
+     - quand un appareil revient avec des modifications non envoyées, on garde pour chaque fiche la version la plus récente ;
+     - une fiche supprimée laisse une trace (sp_deleted) : un appareil qui avait une ancienne copie ne peut plus la faire revenir. */
+  const STAMPED = { categories: 'sp_categories', items: 'sp_items', movements: 'sp_movements', interventions: 'sp_interventions', mp: 'sp_mp' };
+  const seen = new Map(); let tomb = new Set();
+  const TOMB_LOCAL = 'stockpilot.deleted';
+  const localTomb = () => { try { return new Set(JSON.parse(localStorage.getItem(TOMB_LOCAL) || '[]')); } catch (e) { return new Set(); } };
+  const saveLocalTomb = (st) => { try { localStorage.setItem(TOMB_LOCAL, JSON.stringify([...st].slice(-3000))); } catch (e) { /* ignore */ } };
+  const tombId = (k) => k.replace('/', '~');
+  function docJson(x) { const t = x._t; delete x._t; const j = JSON.stringify(x); if (t !== undefined) x._t = t; return j; }
+  function baseline(d) { seen.clear(); if (!d) return; Object.entries(STAMPED).forEach(([k, col]) => (d[k] || []).forEach(x => seen.set(col + '/' + x.id, docJson(x)))); }
+  function stamp(d) {
+    if (!d) return; const now = Date.now(); const present = new Set(); const lt = localTomb(); let tombChanged = false;
+    Object.entries(STAMPED).forEach(([k, col]) => (d[k] || []).forEach(x => { const key = col + '/' + x.id; present.add(key); const j = docJson(x); if (seen.get(key) !== j) { x._t = now; seen.set(key, j); if (lt.delete(key)) tombChanged = true; } }));
+    seen.forEach((j, key) => { if (!present.has(key)) { seen.delete(key); lt.add(key); tombChanged = true; } });
+    if (tombChanged) saveLocalTomb(lt);
+  }
+  const stampOf = (x) => x ? (x._t || Date.parse(x.updatedAt || x.date || x.createdAt || 0) || 0) : 0;
+  /** Fusion fiche par fiche : la version la plus récente gagne ; les fiches supprimées (ici ou ailleurs) ne reviennent pas. */
+  function mergeLww(local, remote) {
+    const lt = localTomb(); const out = Object.assign({}, remote);
+    Object.entries(STAMPED).forEach(([k, col]) => {
+      const R = new Map((remote[k] || []).map(x => [x.id, x])); const L = new Map((local[k] || []).map(x => [x.id, x])); const res = [];
+      new Set([...R.keys(), ...L.keys()]).forEach(id => {
+        const key = col + '/' + id; if (tomb.has(key)) return;
+        const r = R.get(id), l = L.get(id);
+        if (r && l) res.push(stampOf(l) > stampOf(r) ? l : r);
+        else if (l) res.push(l);                      // créé sur cet appareil
+        else if (!lt.has(key)) res.push(r);           // pas supprimé ici
+      });
+      const order = new Map((remote[k] || []).map((x, i) => [x.id, i])); const lorder = new Map((local[k] || []).map((x, i) => [x.id, i]));
+      const pos = (x) => order.has(x.id) ? order.get(x.id) : 1e6 + (lorder.get(x.id) || 0); res.sort((a, b) => pos(a) - pos(b));
+      out[k] = res;
+    });
+    out.movements.sort((a, b) => b.date.localeCompare(a.date));
+    const done = new Set([...((remote.settings || {}).tasksDone || []), ...((local.settings || {}).tasksDone || [])]);
+    out.settings = Object.assign({}, remote.settings, { tasksDone: [...done] });
+    return out;
+  }
   const COLS = { categories: 'sp_categories', items: 'sp_items', movements: 'sp_movements', interventions: 'sp_interventions', mp: 'sp_mp' };
   const LABELS = { local: 'Enregistré sur cet appareil', connecting: 'Connexion…', saving: 'Enregistrement…', saved: 'Enregistré', error: 'Erreur de sauvegarde', readonly: 'Lecture seule' };
   let status = 'local';
@@ -169,7 +209,9 @@ const Cloud = (() => {
     cats.sort((a, b) => (a._order ?? 0) - (b._order ?? 0)); cats.forEach(c => delete c._order);
     items.sort((a, b) => a.createdAt.localeCompare(b.createdAt)); movements.sort((a, b) => b.date.localeCompare(a.date));
     const m = meta.data();
-    return { schemaVersion: m.schemaVersion || 1, settings: m.settings || {}, categories: cats, items, movements, interventions, mp };
+    try { const dead = await readAll('sp_deleted', 'at'); tomb = new Set(dead.map(t => t.key).filter(Boolean)); } catch (e) { /* trace absente : rien à filtrer */ }
+    const alive = (col) => (x) => !tomb.has(col + '/' + x.id);
+    return { schemaVersion: m.schemaVersion || 1, settings: m.settings || {}, categories: cats.filter(alive(COLS.categories)), items: items.filter(alive(COLS.items)), movements: movements.filter(alive(COLS.movements)), interventions: interventions.filter(alive(COLS.interventions)), mp: mp.filter(alive(COLS.mp)) };
   }
   function remember(d) { last.clear(); toMap(d).forEach((v, k) => last.set(k, JSON.stringify(v))); }
   async function flush() {
@@ -183,11 +225,13 @@ const Cloud = (() => {
         for (const [k, v, j] of ops) {
           if (v && j.length > 250000) { toast('Article trop lourd pour la sauvegarde en ligne (images trop grandes). Retirez une image.', 'bad'); continue; }
           await withRetry(() => v ? db.doc(k).set(v) : db.doc(k).delete());
+          if (!v && k !== 'sp_meta/settings') { await withRetry(() => db.doc('sp_deleted/' + tombId(k)).set({ key: k, at: new Date().toISOString() })); tomb.add(k); }
+          else if (v && tomb.has(k)) { await withRetry(() => db.doc('sp_deleted/' + tombId(k)).delete()); tomb.delete(k); }
           if (v) last.set(k, j); else last.delete(k);
         }
         if (ops.length) { lastRev = Date.now(); await withRetry(() => db.doc('sp_meta/rev').set({ by: clientId, n: lastRev, at: new Date().toISOString() })); }
       } while (pending);
-      setDirty(false); setStatus('saved');
+      setDirty(false); setStatus('saved'); saveLocalTomb(new Set());
       if (mergeOnce) { mergeOnce = false; try { const fresh = await pull(); if (fresh && onRemoteCb) { remember(fresh); onRemoteCb(fresh); } } catch (e) { /* next change */ } }
     } catch (e) {
       if (e && (e.code === 'invalid_argument' || e.code === 'permission-denied')) { setStatus('readonly', "Vous n'avez pas le droit de modifier ces données."); if (e.code === 'permission-denied') toast('Accès refusé : ce compte n’est pas autorisé à modifier les données.', 'bad'); }
@@ -205,7 +249,7 @@ const Cloud = (() => {
     if (!db) { setStatus('local'); return null; }
     let remote = null;
     try { remote = await pull(); } catch (e) { setStatus('error', e.message); db = null; return null; }
-    if (remote && isDirty()) { remember(remote); mergeOnce = true; schedule(); remote = null; }   // unsaved local changes are added on top (nothing remote is deleted), then the merged copy is reloaded
+    if (remote && isDirty()) { remember(remote); remote = mergeLww(getDb(), remote); setTimeout(schedule, 0); }   // modifications non envoyées : fusion fiche par fiche (la plus récente gagne), puis envoi
     else if (remote) { remember(remote); } else { last.clear(); schedule(); }
     try { const rv = await db.doc('sp_meta/rev').get(); if (rv.exists) lastRev = Math.max(lastRev, rv.data().n || 0); } catch (e) { /* ignore */ }
     db.doc('sp_meta/rev').onSnapshot(async snap => {
@@ -217,7 +261,7 @@ const Cloud = (() => {
     if (remote) setStatus('saved');
     return remote;
   }
-  return { connect, schedule, remember, status: () => status, online: () => !!db };
+  return { connect, schedule, remember, stamp, baseline, status: () => status, online: () => !!db };
 })();
 
 /* ======================= 3c. SERVEUR LOCAL (réseau de l'usine) =======================
@@ -323,7 +367,7 @@ async function startFirebase() {
     if (!firebase.apps.length) firebase.initializeApp(FB_CONFIG);
     FB.auth = firebase.auth(); FB.db = firebase.firestore();
   } catch (e) { toast('Connexion au serveur impossible : vérifiez internet puis rechargez la page.', 'bad'); return false; }
-  FB.on = true; setupPwa();
+  FB.on = true; setupPwa(); watchUpdates();
   let redirectErr = '';
   try { await FB.auth.getRedirectResult(); } catch (e) { redirectErr = FB_ERR[e.code] || ''; }
   let user = await new Promise(r => { const un = FB.auth.onAuthStateChanged(u => { un(); r(u); }); });
@@ -343,6 +387,24 @@ async function signOutFirebase() {
 }
 /* ---- Installed app (phone / PC icon): service worker for instant start + install button ---- */
 let installEvt = null;
+const APP_VERSION = '20261003110749';
+/** Mise à jour automatique : dès qu'une nouvelle version est publiée, l'application se recharge toute seule
+    (au démarrage, toutes les 5 min et quand on revient sur l'onglet / l'application), sauf si une fenêtre est ouverte. */
+function watchUpdates() {
+  if (APP_VERSION === 'dev' || !FB.on) return;
+  let waiting = false;
+  const check = async () => {
+    try {
+      const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' }); if (!r.ok) return;
+      const v = (await r.json()).v; if (!v || v === APP_VERSION) return;
+      if (Cloud.status() === 'saving') { setTimeout(check, 3000); return; }
+      if (Modal.top() || document.querySelector('input:focus, textarea:focus')) { if (!waiting) { waiting = true; toast('Nouvelle version disponible : elle s’installera à la fermeture de cette fenêtre.', 'ok'); } setTimeout(check, 15000); return; }
+      location.reload();
+    } catch (e) { /* hors ligne : on réessaie plus tard */ }
+  };
+  setTimeout(check, 2500); setInterval(check, 5 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
+}
 function setupPwa() {
   if (!FB.on || !('serviceWorker' in navigator) || (location.protocol !== 'https:' && location.hostname !== 'localhost')) return;
   navigator.serviceWorker.register('sw.js').catch(() => { /* optional */ });
@@ -385,6 +447,7 @@ function exportBackup() {
 const Repo = (() => {
   let db = null;
   const persist = () => {
+    Cloud.stamp(db);
     const r = StorageAdapter.save(db);
     if (!r.ok && !Cloud.online()) toast("Stockage local plein : l'image ou la modification n'a pas pu être enregistrée durablement.", 'bad');
     Cloud.schedule();
@@ -397,6 +460,7 @@ const Repo = (() => {
       db = StorageAdapter.load();
       if (!db || !db.categories) { db = seedFn(); migrate(db); persist(); }
       db.settings = Object.assign({ company: 'Tunisie Silicone', user: 'Admin', theme: 'system' }, db.settings || {});
+      Cloud.baseline(db);
       if (migrate(db)) persist();
       return db;
     },
@@ -404,7 +468,7 @@ const Repo = (() => {
     commit() { persist(); },
     replace(newDb) { db = newDb; migrate(db); persist(); },
     /** Takes a database coming from the cloud without pushing it back. */
-    adopt(remoteDb) { db = remoteDb; db.settings = Object.assign({ company: 'Tunisie Silicone', user: 'Admin', theme: 'system' }, db.settings || {}); const changed = migrate(db); StorageAdapter.save(db); if (changed) Cloud.schedule(); },
+    adopt(remoteDb) { db = remoteDb; db.settings = Object.assign({ company: 'Tunisie Silicone', user: 'Admin', theme: 'system' }, db.settings || {}); const changed = migrate(db); Cloud.baseline(db); StorageAdapter.save(db); if (changed) Cloud.schedule(); },
     reset(seedFn) { db = seedFn(); migrate(db); persist(); },
     settings: {
       get: () => { const u = localUser(); return u ? Object.assign({}, db.settings, { user: u }) : db.settings; },
