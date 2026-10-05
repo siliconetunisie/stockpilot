@@ -387,7 +387,7 @@ async function signOutFirebase() {
 }
 /* ---- Installed app (phone / PC icon): service worker for instant start + install button ---- */
 let installEvt = null;
-const APP_VERSION = '20261005110536';
+const APP_VERSION = '20261005111323';
 /** Mise à jour automatique : dès qu'une nouvelle version est publiée, l'application se recharge toute seule
     (au démarrage, toutes les 5 min et quand on revient sur l'onglet / l'application), sauf si une fenêtre est ouverte. */
 function watchUpdates() {
@@ -1295,7 +1295,7 @@ function viewCategory(v) {
       <button class="icon-btn" id="catMenu" data-menu type="button" aria-label="Plus d'actions">${ic('more')}</button>
     </div></div>
   ${Repo.categories.children(cat.id).length ? `<div class="subcats">${Repo.categories.children(cat.id).map(sc => { const n = isFolder(sc) ? subtreeItems(sc).length : Repo.items.byCategory(sc.id).length; const al = Repo.items.byCategory(sc.id).filter(i => ['low', 'out'].includes(stockStatus(i))).length; return `<button type="button" class="subcat" data-subcat="${sc.id}" style="--c:${sc.color}"><span class="sc-ic">${ic('folder')}</span><span class="sc-t"><b>${esc(sc.name)}</b><span>${n} article${n > 1 ? 's' : ''}${al ? ` · <em>${al} alerte${al > 1 ? 's' : ''}</em>` : ''}</span></span><span class="sc-go">${ic('back')}</span></button>`; }).join('')}</div>` : ''}
-  ${isMouldCat(cat) ? mouldFicheHtml(cat) + mouldHistoryHtml(cat) : ''}
+  ${isMouldCat(cat) ? mouldFicheHtml(cat) + mouldHistoryHtml(cat) : (cat.fiche ? mouldFicheHtml(cat) : '')}
   <div id="catShared"></div>
   <section class="panel">
     <div class="toolbar">
@@ -2154,16 +2154,19 @@ const mouldFiches = (catId) => fiList().filter(f => f.checklist && f.checklist.m
 /* ---------- Fiche de vie du moule (identification, caractéristiques, consommables, photos) ---------- */
 const FV_FIELDS = [['code', 'Code interne'], ['designation', 'Désignation'], ['type', 'Type'], ['serie', 'N° de série'], ['dateEntree', 'Entrée en exploitation'], ['fournisseur', 'Fournisseur'],
   ['hauteur', 'Hauteur'], ['epaisseur', 'Épaisseur'], ['longueur', 'Longueur'], ['largeur', 'Largeur'], ['accessoire', 'Accessoire'], ['empreintes', 'Nombre d’empreintes'], ['gravure', 'Gravure'], ['poids', 'Poids'], ['canaux', 'Canaux']];
+const FV_EQ_FIELDS = [['code', 'Code interne'], ['designation', 'Désignation'], ['type', 'Type / modèle'], ['serie', 'N° de série'], ['dateEntree', 'Entrée en exploitation'], ['fournisseur', 'Fournisseur'],
+  ['mesure', 'Dispositifs de mesure et de surveillance'], ['parametres', 'Paramètres'], ['electrique', 'Données électriques'], ['moteur', 'Moteur / air'], ['accessoires', 'Accessoires'], ['installations', 'Installations associées'], ['pdr', 'Pièces de rechange']];
+const fvFields = (cat) => (cat.fiche && cat.fiche.kind === 'equipement') ? FV_EQ_FIELDS : FV_FIELDS;
 function mouldFicheHtml(cat) {
-  const f = cat.fiche || {};
+  const f = cat.fiche || {}; const FV_FIELDS = fvFields(cat); const eq = f.kind === 'equipement';
   const has = FV_FIELDS.some(([k]) => f[k]) || cat.image || f.photoProduit;
   const cell = (k, l) => f[k] ? `<div class="fv-f"><span>${l}</span><b>${esc(f[k])}</b></div>` : '';
   const photo = (src, l) => src ? `<figure class="fv-ph" data-fvimg="${l}"><img src="${src}" alt=""><figcaption>${l}</figcaption></figure>` : '';
-  return `<section class="panel fv" style="margin-bottom:18px"><div class="panel-head"><h2>${ic('layers')} Fiche de vie du moule</h2>
+  return `<section class="panel fv" style="margin-bottom:18px"><div class="panel-head"><h2>${ic(eq ? 'settings' : 'layers')} Fiche de vie ${eq ? 'de l’équipement' : 'du moule'}</h2>
     <button class="btn btn-sm" type="button" id="fvEdit">${ic('edit')}${has ? 'Modifier' : 'Remplir la fiche'}</button></div>
-    ${has ? `<div class="fv-body"><div class="fv-photos">${photo(cat.image, 'Moule')}${photo(f.photoProduit, 'Produit fini')}</div>
+    ${has ? `<div class="fv-body"><div class="fv-photos">${photo(cat.image, eq ? 'Équipement' : 'Moule')}${photo(f.photoProduit, 'Produit fini')}${eq && !cat.image ? `<div class="empty" style="padding:18px">Pas encore de photo<br><span class="muted">Ajoutez-la avec « Modifier ».</span></div>` : ''}</div>
       <div class="fv-info"><h3>Identification</h3><div class="fv-grid">${FV_FIELDS.slice(0, 6).map(([k, l]) => cell(k, l)).join('')}</div>
-      <h3>Caractéristiques techniques</h3><div class="fv-grid">${FV_FIELDS.slice(6).map(([k, l]) => cell(k, l)).join('')}</div>
+      <h3>${eq ? 'Données techniques' : 'Caractéristiques techniques'}</h3><div class="fv-grid">${FV_FIELDS.slice(6).map(([k, l]) => cell(k, l)).join('')}</div>
       ${(f.consommables || []).length ? `<h3>Consommables</h3><div class="fv-tags">${f.consommables.map(x => `<span class="tag">${esc(x)}</span>`).join('')}</div>` : ''}
       ${(f.historique || []).length ? `<h3>Suivi des travaux (fiche papier)</h3><div class="table-wrap"><table class="data"><thead><tr><th>Date</th><th>Travaux / nettoyage</th><th>Consommation</th></tr></thead><tbody>${f.historique.map(([d, t, c]) => `<tr><td class="num" style="white-space:nowrap">${esc(fmtDate(d))}</td><td>${esc(t)}</td><td>${esc(c || '—')}</td></tr>`).join('')}</tbody></table></div>` : ''}</div></div>`
       : `<div class="empty"><b>Fiche de vie vide</b>Ajoutez le n° de série, le fournisseur, les dimensions et les photos du moule.</div>`}</section>`;
@@ -2173,16 +2176,16 @@ function bindMouldFiche(root, cat) {
   const b = $('#fvEdit', root); if (b) b.addEventListener('click', () => openMouldFicheForm(cat.id));
 }
 function openMouldFicheForm(catId) {
-  const cat = Repo.categories.get(catId); const f = Object.assign({}, cat.fiche || {}); const img = { moule: cat.image || '', produit: f.photoProduit || '' };
-  const m = Modal.open({ title: 'Fiche de vie du moule', sub: esc(cat.name), size: 'wide',
+  const cat = Repo.categories.get(catId); const FV_FIELDS = fvFields(cat); const f = Object.assign({}, cat.fiche || {}); const img = { moule: cat.image || '', produit: f.photoProduit || '' };
+  const m = Modal.open({ title: (cat.fiche && cat.fiche.kind === 'equipement') ? 'Fiche de vie de l’équipement' : 'Fiche de vie du moule', sub: esc(cat.name), size: 'wide',
     body: `<div class="form-grid">${FV_FIELDS.map(([k, l]) => `<div class="fg"><label for="fv_${k}">${l}</label><input class="input" id="fv_${k}" value="${esc(f[k] || '')}"></div>`).join('')}
       <div class="fg full"><label for="fv_cons">Consommables (séparés par des virgules)</label><input class="input" id="fv_cons" value="${esc((f.consommables || []).join(', '))}"></div>
-      ${['moule', 'produit'].map(k => `<div class="fg"><label>Photo ${k === 'moule' ? 'du moule' : 'du produit fini'}</label><div class="fv-pick" data-fvp="${k}"><div class="preview">${img[k] ? `<img src="${img[k]}" alt="">` : icon('image')}</div><button class="btn btn-sm" type="button">${ic('upload')}Choisir</button></div></div>`).join('')}</div>`,
+      ${(cat.fiche && cat.fiche.kind === 'equipement' ? ['moule'] : ['moule', 'produit']).map(k => `<div class="fg"><label>Photo ${k === 'moule' ? ((cat.fiche && cat.fiche.kind === 'equipement') ? 'de l’équipement' : 'du moule') : 'du produit fini'}</label><div class="fv-pick" data-fvp="${k}"><div class="preview">${img[k] ? `<img src="${img[k]}" alt="">` : icon('image')}</div><button class="btn btn-sm" type="button">${ic('upload')}Choisir</button></div></div>`).join('')}</div>`,
     foot: `<button class="btn" data-close type="button">Annuler</button><button class="btn btn-accent" id="fvSave" type="button">Enregistrer</button>` });
   $$('[data-fvp]', m.el).forEach(box => $('button', box).addEventListener('click', async () => { const src = await ImageTools.pick(); if (src) { img[box.dataset.fvp] = src; $('.preview', box).innerHTML = `<img src="${src}" alt="">`; } }));
   $('#fvSave', m.el).addEventListener('click', () => {
     const nf = {}; FV_FIELDS.forEach(([k]) => { const v = $('#fv_' + k, m.el).value.trim(); if (v) nf[k] = v; });
-    nf.consommables = $('#fv_cons', m.el).value.split(',').map(x => x.trim()).filter(Boolean); if (img.produit) nf.photoProduit = img.produit; if ((cat.fiche || {}).historique) nf.historique = cat.fiche.historique;
+    nf.consommables = $('#fv_cons', m.el).value.split(',').map(x => x.trim()).filter(Boolean); if (img.produit) nf.photoProduit = img.produit; if ((cat.fiche || {}).historique) nf.historique = cat.fiche.historique; if ((cat.fiche || {}).kind) nf.kind = cat.fiche.kind;
     Repo.categories.update(cat.id, { fiche: nf, image: img.moule || cat.image || '' }); m.close(); toast('Fiche de vie enregistrée', 'ok'); render();
   });
 }
@@ -2879,6 +2882,38 @@ const DATA_TASKS = [
       ids.forEach((c, k) => { if (eq.columns.some(x => x.id === c)) fill(it, { id: c }, vals[k]); });
       fill(it, { id: 'f-eq-statut' }, 'En service'); it.updatedAt = now;
     });
+    return true;
+  } },
+  { id: 'equipements-categories-materiel-2026-10-05', run() {
+    // Chaque équipement devient sa propre catégorie dans « Matériel », avec sa fiche de vie (comme les fiches envoyées).
+    const db = Repo.raw(); const now = new Date().toISOString();
+    const folder = Repo.categories.get('cmuo1wjw1jfy3i') || Repo.categories.list().find(c => isFolder(c) && /mat[ée]riel/i.test(c.name)); if (!folder) return false;
+    const col = (id, name, type, extra = {}) => Object.assign({ id, name, type, required: false, default: '', options: [], role: '', unit: '' }, extra);
+    const pdrCols = (k) => [col('f-' + k + '-ref', 'Référence', 'reference', { role: 'reference', required: true }), col('f-' + k + '-des', 'Désignation', 'text', { role: 'name', required: true }), col('f-' + k + '-qty', 'Quantité', 'quantity', { role: 'quantity', required: true, default: 0, unit: 'pcs' }),
+      col('f-' + k + '-min', 'Stock min', 'number', { role: 'min', unit: 'pcs' }), col('f-' + k + '-loc', 'Emplacement', 'text', { role: 'location' }), col('f-' + k + '-four', 'Fournisseur', 'text'), col('f-' + k + '-link', 'En commun avec', 'link'), col('f-' + k + '-photo', 'Photo', 'image'), col('f-' + k + '-notes', 'Notes', 'longtext')];
+    const E = [
+      { id: 'c-mat-tym', name: 'Machine d’injection TYM 45-45', code: 'TYM', color: '#1E5FD2', fiche: { kind: 'equipement', code: 'TYM-UI1', designation: 'Machine d’injection silicone liquide (LSR) horizontale', type: 'TYM 45-45 (TYM-W4545)', serie: '161115', dateEntree: 'Janvier 2018', fournisseur: 'TYM — sales13@gdtym.com',
+        mesure: '6 thermocouples, 2 manomètres de pression', parametres: 'T°C, bar, vitesse', electrique: '80 A · 380 V · force de fermeture 130 T', moteur: 'Moteur 12,1 kW · air 0,4–0,8 MPa', accessoires: 'Automate de contrôle', pdr: 'Voir liste des PDR',
+        consommables: ['Huile GULF HARMONY AW46 (réf. RK1A170159)', 'Graisse roulement alimentaire CAMP', 'Eau de refroidissement'] },
+        description: 'Plateaux 450 × 450 mm · volume injectable 10 à 285 g · débit 150 g/s · pression d’injection 700 kg/cm² · pompe 20 MPa · éjection 145 mm / 4 T · 4,3 × 1,3 × 2,0 m · 5,2 T.' },
+      { id: 'cmuo9tltl2avd0', name: null, fiche: { kind: 'equipement', code: 'TYM-EAU1', designation: 'Système de refroidissement', type: 'TYM', serie: '161115', dateEntree: 'Janvier 2018', fournisseur: 'TYM — sales13@gdtym.com',
+        mesure: '2 manomètres de pression', parametres: 'T°C', electrique: '80 A · 380 V', moteur: 'Moteur 12,1 kW', installations: 'Réservoir d’eau 22 L', pdr: 'Flexible', consommables: ['Eau de refroidissement'] } },
+      { id: 'c-mat-four', name: 'Four de cuisson', code: 'FC', color: '#C2410C', fiche: { kind: 'equipement', code: 'W-FC1', designation: 'Four de cuisson', type: 'WSDA', serie: 'DA170040', dateEntree: 'Janvier 2018', fournisseur: 'TYM — sales13@gdtym.com',
+        mesure: '2 thermocouples', parametres: 'T°C', electrique: '380 V · poids 350 kg', accessoires: 'Plateau, chariots', consommables: ['RAS'] } },
+      { id: 'c-mat-cond', name: 'Machine de conditionnement', code: 'MC', color: '#0F766E', fiche: { kind: 'equipement', code: 'MC1', designation: 'Machine de conditionnement', type: 'HX 2023', serie: '20151230_3', dateEntree: 'Avril 2020', fournisseur: 'CREATIVE PACKAGING',
+        mesure: '1 manomètre de pression, 1 thermocouple', parametres: 'T°C, bar, ampérage, temps', electrique: '80 A · 220 V', accessoires: 'Moules de conditionnement', consommables: ['Papier cuisson', 'Résistance moule de conditionnement'] } },
+      { id: 'c-mat-litop', name: 'Machine de perçage tétine (LITOP)', code: 'LIT', color: '#7C3AED', fiche: { kind: 'equipement', code: 'LITOP', designation: 'Machine de perçage tétine', type: 'Presse pneumatique', serie: 'LNB001-63', dateEntree: 'Avril 2026', fournisseur: 'Lituo Air-Hydraulic Equipment',
+        parametres: 'Air comprimé', electrique: '380 V', accessoires: 'Aiguilles 0,6 mm, 0,7 mm, 0,8 mm', pdr: 'Aiguille', consommables: ['Flexible d’air'] } }];
+    E.forEach(e => {
+      let c = Repo.categories.get(e.id) || (e.id === 'cmuo9tltl2avd0' ? Repo.categories.list().find(x => !isFolder(x) && /refroidissement/i.test(x.name)) : null);
+      if (!c) { if (!e.name) return; c = { id: e.id, kind: 'items', parentId: folder.id, name: e.name, code: e.code, color: e.color, description: e.description || '', columns: pdrCols(e.code.toLowerCase()), createdAt: now }; db.categories.push(c); }
+      c.fiche = Object.assign({}, e.fiche, c.fiche || {}); c.parentId = c.parentId || folder.id; c.updatedAt = now;
+    });
+    // ce qui avait été mis à la place : la catégorie « Équipements et installations », la fiche TYM-W4545 créée dans « Machines d'injection » et les notes ajoutées
+    const gone = new Set(['c-equip-instal']);
+    db.items = db.items.filter(i => !(gone.has(i.categoryId) || i.id === 'i-tym-w4545' || /^i-eq-/.test(i.id)));
+    db.categories = db.categories.filter(c => !gone.has(c.id));
+    db.items.forEach(i => Object.keys(i.values).forEach(k => { const v = i.values[k]; if (typeof v === 'string' && /Fiche de vie — code interne TYM-(UI1|EAU1)/.test(v)) { i.values[k] = v.replace(/(\n\n)?Fiche de vie — code interne TYM-(UI1|EAU1)[\s\S]*?(Pièces de rechange : [^\n]*)/g, '').trim(); i.updatedAt = now; } }));
     return true;
   } },
 ];
