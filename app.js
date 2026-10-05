@@ -387,7 +387,7 @@ async function signOutFirebase() {
 }
 /* ---- Installed app (phone / PC icon): service worker for instant start + install button ---- */
 let installEvt = null;
-const APP_VERSION = '20261005105150';
+const APP_VERSION = '20261005105645';
 /** Mise à jour automatique : dès qu'une nouvelle version est publiée, l'application se recharge toute seule
     (au démarrage, toutes les 5 min et quand on revient sur l'onglet / l'application), sauf si une fenêtre est ouverte. */
 function watchUpdates() {
@@ -2153,7 +2153,7 @@ function clPaperHtml(f) {
 const mouldFiches = (catId) => fiList().filter(f => f.checklist && f.checklist.mouldRef === 'c:' + catId).sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.number || '').localeCompare(a.number || ''));
 /* ---------- Fiche de vie du moule (identification, caractéristiques, consommables, photos) ---------- */
 const FV_FIELDS = [['code', 'Code interne'], ['designation', 'Désignation'], ['type', 'Type'], ['serie', 'N° de série'], ['dateEntree', 'Entrée en exploitation'], ['fournisseur', 'Fournisseur'],
-  ['hauteur', 'Hauteur'], ['epaisseur', 'Épaisseur'], ['longueur', 'Longueur'], ['largeur', 'Largeur'], ['accessoire', 'Accessoire'], ['empreintes', 'Nombre d’empreintes'], ['gravure', 'Gravure'], ['poids', 'Poids']];
+  ['hauteur', 'Hauteur'], ['epaisseur', 'Épaisseur'], ['longueur', 'Longueur'], ['largeur', 'Largeur'], ['accessoire', 'Accessoire'], ['empreintes', 'Nombre d’empreintes'], ['gravure', 'Gravure'], ['poids', 'Poids'], ['canaux', 'Canaux']];
 function mouldFicheHtml(cat) {
   const f = cat.fiche || {};
   const has = FV_FIELDS.some(([k]) => f[k]) || cat.image || f.photoProduit;
@@ -2820,6 +2820,7 @@ const DATA_TASKS = [
   } },
   { id: 'moules-injection-silicone-fiches-2026-10-05', run() { return applyMouldFiches('data/fiches-moules-2026-10-05.json', '__fvMoules'); } },
   { id: 'moule-embout-nasal-fiche-2026-10-05', run() { return applyMouldFiches('data/fiche-moule-embout-2026-10-05.json', '__fvEmbout'); } },
+  { id: 'moules-injection-plastique-fiches-2026-10-05', run() { return applyMouldFiches('data/fiches-moules-plastique-2026-10-05.json', '__fvPlast', { id: 'c-moule-inj-pla', name: 'Moule injection plastique', code: 'MIP', color: '#D9822B', description: 'Moules d’injection plastique : fiche de vie, photos, pièces et historique de maintenance.' }); } },
   { id: 'retirer-suivi-papier-embout-2026-10-05', run() {
     // Retire le « Suivi des travaux (fiche papier) » de la fiche de vie du moule Embout nasal.
     Repo.categories.list().forEach(c => { if (c.fiche && c.fiche.historique) { delete c.fiche.historique; c.updatedAt = new Date().toISOString(); } });
@@ -2828,16 +2829,16 @@ const DATA_TASKS = [
 ];
 /** Applies pending one-time tasks; returns true when the data changed. */
 /** Dossier « Moule injection silicone » (dans Moule) + fiche de vie et photos de chaque moule (fichiers « Fiche de vie moule »). */
-function applyMouldFiches(url, key) {
+function applyMouldFiches(url, key, F = { id: 'c-moule-inj-sil', name: 'Moule injection silicone', code: 'MIS', color: '#1E5FD2', description: 'Moules d’injection silicone : fiche de vie, photos, pièces et historique de maintenance.' }) {
     if (!window[key]) { if (!window[key + 'L']) { window[key + 'L'] = true; fetch(url, { cache: 'no-store' }).then(r => r.json()).then(j => { window[key] = j; if (runDataTasks() && !Modal.top()) render(); }).catch(() => { window[key + 'L'] = false; }); } return false; }
     const db = Repo.raw(); const now = new Date().toISOString();
     const moule = Repo.categories.get('cmuo2ueavi32um') || Repo.categories.list().find(c => isFolder(c) && /^moules?$/i.test(c.name.trim())); if (!moule) return false;
-    let folder = Repo.categories.get('c-moule-inj-sil');
-    if (!folder) { folder = { id: 'c-moule-inj-sil', kind: 'folder', parentId: moule.id, name: 'Moule injection silicone', code: 'MIS', color: '#1E5FD2', description: 'Moules d’injection silicone : fiche de vie, photos, pièces et historique de maintenance.', columns: [], createdAt: now, updatedAt: now }; db.categories.push(folder); }
+    let folder = Repo.categories.get(F.id);
+    if (!folder) { folder = Object.assign({ kind: 'folder', parentId: moule.id, columns: [], createdAt: now, updatedAt: now }, F); db.categories.push(folder); }
     const byName = (re) => Repo.categories.list().find(c => !isFolder(c) && re.test(c.name));
     const NAMES = { EMB: /embout/i, BPM: /BPM|petit mod/i, BGM: /BGM|grand mod/i, CUI: /cuill/i, SUC: /sucette/i, TL: /t[ée]tine large/i, TNF: /natural flow/i, TS: /t[ée]tine souple/i, TPH: /physiolog/i };
     window[key].forEach(r => {
-      let cat = (r.cat && Repo.categories.get(r.cat)) || byName(NAMES[r.code]);
+      let cat = (r.cat && Repo.categories.get(r.cat)) || (NAMES[r.code] ? byName(NAMES[r.code]) : null) || Repo.categories.get('c-moule-' + r.code.toLowerCase());
       if (!cat) {
         const model = Repo.categories.get('cmupi8v2ribvcn') || Repo.categories.list().find(c => !isFolder(c) && /moule/i.test(c.name) && isStockCat(c));
         const cols = model ? model.columns.map(c => Object.assign({}, c, { id: c.id + '-' + r.code.toLowerCase() })) : [];
