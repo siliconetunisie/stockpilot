@@ -387,7 +387,7 @@ async function signOutFirebase() {
 }
 /* ---- Installed app (phone / PC icon): service worker for instant start + install button ---- */
 let installEvt = null;
-const APP_VERSION = '20261005105645';
+const APP_VERSION = '20261005110536';
 /** Mise à jour automatique : dès qu'une nouvelle version est publiée, l'application se recharge toute seule
     (au démarrage, toutes les 5 min et quand on revient sur l'onglet / l'application), sauf si une fenêtre est ouverte. */
 function watchUpdates() {
@@ -2824,6 +2824,61 @@ const DATA_TASKS = [
   { id: 'retirer-suivi-papier-embout-2026-10-05', run() {
     // Retire le « Suivi des travaux (fiche papier) » de la fiche de vie du moule Embout nasal.
     Repo.categories.list().forEach(c => { if (c.fiche && c.fiche.historique) { delete c.fiche.historique; c.updatedAt = new Date().toISOString(); } });
+    return true;
+  } },
+  { id: 'fiches-equipements-installations-2026-10-05', run() {
+    // Fiches de vie « Équipements et installations associés » : machine d'injection TYM, refroidissement, four, conditionnement, perçage.
+    const db = Repo.raw(); const now = new Date().toISOString();
+    const folder = Repo.categories.get('cmuo1wjw1jfy3i') || Repo.categories.list().find(c => isFolder(c) && /mat[ée]riel|machines?/i.test(c.name)); if (!folder) return false;
+    const col = (id, name, type, extra = {}) => Object.assign({ id, name, type, required: false, default: '', options: [], role: '', unit: '' }, extra);
+    const colOf = (cat, re, role) => (role && cat.columns.find(c => c.role === role)) || cat.columns.find(c => re.test(normName(c.name)));
+    const ensure = (cat, re, def) => { let c = cat.columns.find(x => re.test(normName(x.name))); if (!c) { c = def; cat.columns.push(c); cat.updatedAt = now; } return c; };
+    const fill = (it, c, v) => { if (c && v && (it.values[c.id] === undefined || it.values[c.id] === '' || it.values[c.id] === null)) it.values[c.id] = v; };
+    const addNote = (it, c, block) => { if (!c) return; const cur = it.values[c.id] || ''; if (!cur.includes(block.split('\n')[0])) it.values[c.id] = (cur ? cur + '\n\n' : '') + block; };
+    // 1. Machine d'injection TYM 45-45 (fiche existante)
+    const mi = Repo.categories.get('cmuo1p9p9bbqwt') || Repo.categories.list().find(c => !isFolder(c) && /injection/i.test(c.name) && !/moule/i.test(c.name));
+    if (mi) {
+      let tym = db.items.find(i => i.categoryId === mi.id && /4545|45-45/.test(JSON.stringify(i.values)));
+      if (!tym) { tym = { id: 'i-tym-w4545', categoryId: mi.id, createdAt: now, updatedAt: now, values: {}, formType: 'machine' }; db.items.push(tym); }
+      fill(tym, colOf(mi, /^reference/, 'reference'), 'TYM-W4545'); fill(tym, colOf(mi, /^fabricant/), 'TYM Silicone Machine Ltd (Guangzhou, Chine)');
+      fill(tym, colOf(mi, /^n.? de serie/), '161115'); fill(tym, colOf(mi, /^tonnage/), 130);
+      const notes = ensure(mi, /^notes?$/, col('f-mi-notes', 'Notes', 'longtext'));
+      addNote(tym, notes, ['Fiche de vie — code interne TYM-UI1', 'Type : TYM 45-45 · n° de série 161115 · en exploitation depuis janvier 2018', 'Fournisseur : TYM — sales13@gdtym.com',
+        'Dispositifs de mesure et de surveillance : 6 thermocouples, 2 manomètres de pression', 'Paramètres : T°C, bar, vitesse',
+        'Données électriques : 80 A · 380 V · 130 T · moteur 12,1 kW · air 0,4–0,8 MPa · automate de contrôle',
+        'Consommables : huile GULF HARMONY AW46 (réf. RK1A170159) · graisse roulement alimentaire CAMP (Grasso) · eau de refroidissement', 'Pièces de rechange : voir liste des PDR'].join('\n'));
+      tym.updatedAt = now;
+    }
+    // 2. Système de refroidissement (catégorie existante)
+    const rf = Repo.categories.get('cmuo9tltl2avd0') || Repo.categories.list().find(c => !isFolder(c) && /refroidissement/i.test(c.name));
+    if (rf) {
+      let eau = db.items.find(i => i.categoryId === rf.id);
+      if (!eau) { eau = { id: 'i-tym-eau1', categoryId: rf.id, createdAt: now, updatedAt: now, values: {}, formType: 'equipement' }; db.items.push(eau); fill(eau, colOf(rf, /^designation/, 'name'), 'Système de refroidissement TYM'); fill(eau, colOf(rf, /^reference/, 'reference'), 'TYM-EAU1'); }
+      fill(eau, colOf(rf, /^fabricant/), 'TYM (Chine)'); fill(eau, colOf(rf, /^n.? de serie/), '161115');
+      const notes = ensure(rf, /^notes?$/, col('f-rf-notes', 'Notes', 'longtext'));
+      addNote(eau, notes, ['Fiche de vie — code interne TYM-EAU1', 'Système de refroidissement de la machine d’injection TYM · n° de série 161115 · en exploitation depuis janvier 2018', 'Fournisseur : TYM — sales13@gdtym.com',
+        'Dispositifs de mesure et de surveillance : 2 manomètres de pression', 'Paramètres : T°C', 'Données électriques : 80 A · 380 V · moteur 12,1 kW', 'Installation associée : réservoir d’eau 22 L',
+        'Consommables : eau de refroidissement', 'Pièces de rechange : flexible'].join('\n'));
+      eau.updatedAt = now;
+    }
+    // 3. Autres équipements : nouvelle catégorie
+    let eq = Repo.categories.get('c-equip-instal');
+    if (!eq) { eq = { id: 'c-equip-instal', kind: 'items', parentId: folder.id, name: 'Équipements et installations', code: 'EQI', color: '#6B5BD2', description: 'Équipements et installations associés à la production : fiche de vie de chaque équipement.', createdAt: now, updatedAt: now, defaultForm: 'equipement',
+      columns: [col('f-eq-ref', 'Code interne', 'reference', { role: 'reference', required: true }), col('f-eq-des', 'Désignation', 'text', { role: 'name', required: true }), col('f-eq-type', 'Type / modèle', 'text'), col('f-eq-serie', 'N° de série', 'text'),
+        col('f-eq-four', 'Fournisseur', 'text'), col('f-eq-date', 'Entrée en exploitation', 'text'), col('f-eq-mesure', 'Dispositifs de mesure', 'text'), col('f-eq-param', 'Paramètres', 'text'), col('f-eq-elec', 'Données électriques', 'text'),
+        col('f-eq-acc', 'Accessoires', 'text'), col('f-eq-cons', 'Consommables', 'text'), col('f-eq-pdr', 'Pièces de rechange', 'text'), col('f-eq-statut', 'Statut', 'dropdown', { options: ['En service', 'En maintenance', 'Hors service'] }),
+        col('f-eq-loc', 'Emplacement', 'text', { role: 'location' }), col('f-eq-photo', 'Photo', 'image'), col('f-eq-notes', 'Notes', 'longtext')] };
+      db.categories.push(eq); }
+    const E = [
+      ['i-eq-wfc1', 'W-FC1', 'Four de cuisson', 'WSDA', 'DA170040', 'TYM — sales13@gdtym.com', 'Janvier 2018', '2 thermocouples', 'T°C', '380 V · poids 350 kg', 'Plateau, chariots', 'RAS', ''],
+      ['i-eq-mc1', 'MC1', 'Machine de conditionnement', 'HX 2023', '20151230_3', 'CREATIVE PACKAGING', 'Avril 2020', '1 manomètre de pression, 1 thermocouple', 'T°C, bar, ampérage, temps', '80 A · 220 V', 'Moules de conditionnement', 'Papier cuisson, résistance moule de conditionnement', ''],
+      ['i-eq-litop', 'LITOP', 'Machine de perçage tétine (LITOP)', 'Presse pneumatique', 'LNB001-63', 'Lituo Air-Hydraulic Equipment', 'Avril 2026', '—', 'Air comprimé', '380 V', 'Aiguilles 0,6 mm, 0,7 mm, 0,8 mm', 'Flexible d’air', 'Aiguille']];
+    const ids = ['f-eq-ref', 'f-eq-des', 'f-eq-type', 'f-eq-serie', 'f-eq-four', 'f-eq-date', 'f-eq-mesure', 'f-eq-param', 'f-eq-elec', 'f-eq-acc', 'f-eq-cons', 'f-eq-pdr'];
+    E.forEach(([id, ...vals]) => {
+      let it = db.items.find(i => i.id === id); if (!it) { it = { id, categoryId: eq.id, createdAt: now, updatedAt: now, values: {}, formType: 'equipement' }; db.items.push(it); }
+      ids.forEach((c, k) => { if (eq.columns.some(x => x.id === c)) fill(it, { id: c }, vals[k]); });
+      fill(it, { id: 'f-eq-statut' }, 'En service'); it.updatedAt = now;
+    });
     return true;
   } },
 ];
