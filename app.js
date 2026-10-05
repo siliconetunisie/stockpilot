@@ -387,7 +387,7 @@ async function signOutFirebase() {
 }
 /* ---- Installed app (phone / PC icon): service worker for instant start + install button ---- */
 let installEvt = null;
-const APP_VERSION = '20261005092949';
+const APP_VERSION = '20261005093912';
 /** Mise à jour automatique : dès qu'une nouvelle version est publiée, l'application se recharge toute seule
     (au démarrage, toutes les 5 min et quand on revient sur l'onglet / l'application), sauf si une fenêtre est ouverte. */
 function watchUpdates() {
@@ -617,7 +617,7 @@ function linkChips(refs, opts = {}) {
 /** Everything a link can point to: moulds / item categories (except `exceptCat`) and equipment items (items of categories without stock). */
 function linkTargets(exceptCat) {
   const cats = itemCats().filter(c => c.id !== exceptCat).map(c => ({ ref: 'c:' + c.id, label: catLabel(c) }));
-  const eq = Repo.items.list().filter(i => { const c = catOf(i); return c && !isStockCat(c); }).map(i => ({ ref: 'i:' + i.id, label: `${catOf(i).name} › ${itemRef(i) ? itemRef(i) + ' · ' : ''}${itemName(i)}` }));
+  const eq = Repo.items.list().filter(i => { const c = catOf(i); return c && (!isStockCat(c) || isNonStockItem(i)); }).map(i => ({ ref: 'i:' + i.id, label: `${catOf(i).name} › ${itemRef(i) ? itemRef(i) + ' · ' : ''}${itemName(i)}` }));
   return { cats, eq };
 }
 const linkCols = (c) => (c ? c.columns.filter(x => x.type === 'link') : []);
@@ -635,7 +635,7 @@ function itemName(item) {
   return parts.length ? parts.join(' · ') : (itemRef(item) || 'Article sans nom');
 }
 const numOrNull = (v) => (v === '' || v === null || v === undefined || isNaN(Number(v))) ? null : Number(v);
-function itemQty(item) { const c = roleCol(catOf(item), 'quantity'); return c ? numOrNull(item.values[c.id]) ?? 0 : null; }
+function itemQty(item) { if (isNonStockItem(item)) return null; const c = roleCol(catOf(item), 'quantity'); return c ? numOrNull(item.values[c.id]) ?? 0 : null; }
 function itemMin(item) { const c = roleCol(catOf(item), 'min'); return c ? numOrNull(item.values[c.id]) : null; }
 function itemMax(item) { const c = roleCol(catOf(item), 'max'); return c ? numOrNull(item.values[c.id]) : null; }
 function itemLoc(item) { const c = roleCol(catOf(item), 'location'); return c ? (item.values[c.id] || '') : ''; }
@@ -648,7 +648,7 @@ function stockStatus(item) {
   return 'ok';
 }
 function lastMovement(item) { return Repo.journal.list().find(m => m.itemId === item.id) || null; }
-const stockItems = () => Repo.items.list().filter(i => { const c = catOf(i); return c && isStockCat(c); });
+const stockItems = () => Repo.items.list().filter(i => { const c = catOf(i); return c && isStockCat(c) && !isNonStockItem(i); });
 
 function statusBadge(s) { const st = STATUS[s]; return `<span class="badge ${st.cls}">${st.label}</span>`; }
 function opBadge(t) { const o = OPS[t] || OPS.adjust; return `<span class="op ${o.cls}">${ic(o.icon)}${o.short}</span>`; }
@@ -1372,7 +1372,7 @@ function viewCategory(v) {
   draw();
 }
 function itemMenu(anchor, itemId) {
-  const it = Repo.items.get(itemId); const stock = isStockCat(catOf(it));
+  const it = Repo.items.get(itemId); const stock = isStockCat(catOf(it)) && !isNonStockItem(it);
   openMenu(anchor, [
     { label: 'Voir le détail', icon: 'eye', onClick: () => openItemDetail(itemId) },
     { label: 'Modifier', icon: 'edit', onClick: () => openItemForm(it.categoryId, itemId) },
@@ -1579,7 +1579,7 @@ function openFicheForm(id, preset = {}) {
   const f = f0 ? clone(f0) : Object.assign({ number: fiNextNumber(), status: 'open', date: today, time: hm, maintenanceBy: Repo.settings.get().user || '', equipment: [], mentions: {}, natures: [], parts: [], type: 'MC', actor: 'Interne', consumeStock: true }, preset);
   f.mentions = f.mentions || {}; f.parts = f.parts || []; f.equipment = f.equipment || [];
   const cands = mentionCandidates();
-  const stockable = Repo.items.list().filter(i => isStockCat(catOf(i)));
+  const stockable = Repo.items.list().filter(i => isStockCat(catOf(i)) && !isNonStockItem(i));
   const partOptions = `<option value="">— Choisir dans le stock —</option>` + itemCats().filter(isStockCat).map(c => `<optgroup label="${esc(catLabel(c))}">${Repo.items.byCategory(c.id).map(i => `<option value="${i.id}">${esc((itemRef(i) ? itemRef(i) + ' — ' : '') + itemName(i))} (${fmtNum(itemQty(i))} ${esc(qtyUnit(i))})</option>`).join('')}</optgroup>`).join('') + `<option value="__free">Autre (saisie libre)</option>`;
   const locked = !!f.stockApplied;
   const m = Modal.open({
@@ -2445,17 +2445,41 @@ function fieldHtml(col, value, catId) {
     default: return `<div class="fg" data-col="${col.id}">${label}<input class="input" id="${id}" value="${esc(v)}"></div>`;
   }
 }
-function openItemForm(catId, itemId) {
+/* ---------- Types de fiche : machine, équipement, pièce de rechange ----------
+   Dans une même catégorie, chaque article peut avoir son propre formulaire. Les champs manquants sont ajoutés
+   à la catégorie au premier enregistrement ; machines et équipements ne comptent pas dans le stock. */
+const F = (name, type, extra = {}) => Object.assign({ name, type, role: '', required: false, default: '', options: [], unit: '' }, extra);
+const ITEM_TYPES = {
+  machine: { label: 'Machine', icon: 'settings', stock: false, fields: [F('Référence', 'reference', { role: 'reference', required: true }), F('Désignation', 'text', { role: 'name', required: true }), F('Fabricant', 'text'), F('Modèle', 'text'), F('N° de série', 'text'), F('Tonnage', 'number', { unit: 't' }), F('Statut', 'dropdown', { options: ['En production', 'En réglage', 'En maintenance', "À l'arrêt"] }), F('Emplacement', 'text', { role: 'location' }), F('Photo', 'image'), F('Notes', 'longtext')] },
+  equipement: { label: 'Équipement', icon: 'wrench', stock: false, fields: [F('Référence', 'reference', { role: 'reference', required: true }), F('Désignation', 'text', { role: 'name', required: true }), F('Fabricant', 'text'), F('Modèle', 'text'), F('N° de série', 'text'), F('Statut', 'dropdown', { options: ['En service', 'En maintenance', 'Hors service'] }), F('Emplacement', 'text', { role: 'location' }), F('Photo', 'image'), F('Notes', 'longtext')] },
+  piece: { label: 'Pièce de rechange', icon: 'box', stock: true, fields: [F('Référence', 'reference', { role: 'reference', required: true }), F('Désignation', 'text', { role: 'name', required: true }), F('Quantité', 'quantity', { role: 'quantity', required: true, default: 0, unit: 'pcs' }), F('Stock min', 'number', { role: 'min', unit: 'pcs' }), F('Emplacement', 'text', { role: 'location' }), F('Fournisseur', 'text'), F('En commun avec', 'link'), F('Photo', 'image'), F('Notes', 'longtext')] },
+};
+const isNonStockItem = (it) => !!(it && ITEM_TYPES[it.formType] && !ITEM_TYPES[it.formType].stock);
+const defaultFormType = (cat) => cat.defaultForm || (isStockCat(cat) ? 'piece' : /machine/i.test(cat.name) ? 'machine' : 'equipement');
+/** Colonnes de la catégorie à utiliser pour un type de fiche (existantes si possible, sinon nouvelles). */
+function planFormCols(cat, type) {
+  const T = ITEM_TYPES[type]; if (!T) return cat.columns.map(col => ({ col, isNew: false }));
+  const used = new Set(); const out = new Array(T.fields.length);
+  const take = (i, col) => { used.add(col.id); out[i] = { col, isNew: false }; };
+  T.fields.forEach((f, i) => { const c = cat.columns.find(x => !used.has(x.id) && normName(x.name) === normName(f.name) && (x.type === f.type || (f.type === 'text' && ['text', 'longtext'].includes(x.type)) || (f.type === 'reference' && x.type === 'text'))); if (c) take(i, c); });
+  T.fields.forEach((f, i) => { if (out[i] || !f.role) return; const c = cat.columns.find(x => !used.has(x.id) && x.role === f.role); if (c) take(i, c); });
+  T.fields.forEach((f, i) => { if (out[i] || !['image', 'link', 'quantity'].includes(f.type)) return; const c = cat.columns.find(x => !used.has(x.id) && x.type === f.type); if (c) take(i, c); });
+  T.fields.forEach((f, i) => { if (out[i]) return; const role = f.role && !cat.columns.some(x => x.role === f.role) ? f.role : ''; out[i] = { col: Object.assign({}, f, { id: uid('f'), role, required: role ? f.required : false }), isNew: true, wantRole: f.role && !role ? f.role : '' }; });
+  return out;
+}
+function openItemForm(catId, itemId, formType) {
   const cat = Repo.categories.get(catId); const it = itemId ? Repo.items.get(itemId) : null;
+  const ftype = it ? (it.formType || '') : (formType ?? defaultFormType(cat));
+  const plan = planFormCols(cat, ftype); const fcols = plan.map(p => p.col);
   const vals = it ? clone(it.values) : {}; const images = {};
-  cat.columns.forEach(c => { if (c.type === 'image') images[c.id] = vals[c.id] || ''; if (!it && c.default !== '' && c.default !== undefined && c.type !== 'image') vals[c.id] = c.default; });
+  fcols.forEach(c => { if (c.type === 'image') images[c.id] = vals[c.id] || ''; if (!it && c.default !== '' && c.default !== undefined && c.type !== 'image') vals[c.id] = c.default; });
   const m = Modal.open({
-    title: it ? "Modifier l'article" : 'Nouvel article', sub: `${esc(cat.name)} · ${cat.columns.length} champs`, size: 'wide',
-    body: (it ? '' : `<div class="fg full cat-pick"><label for="iCat">Catégorie de l’article</label><select class="select full" id="iCat">${itemCats().map(c => `<option value="${c.id}"${c.id === cat.id ? ' selected' : ''}>${esc(catLabel(c))}${isStockCat(c) ? '' : ' (machines / équipements)'}</option>`).join('')}</select><span class="hint">Le formulaire s’adapte à la catégorie choisie.</span></div>`) + (cat.columns.length ? `<div class="form-grid">${cat.columns.map(c => fieldHtml(c, vals[c.id], cat.id)).join('')}</div>` : `<div class="empty"><b>Cette catégorie n'a aucune colonne</b>Ajoutez d'abord une colonne pour définir le formulaire.</div>`),
+    title: it ? "Modifier l'article" : 'Nouvel article', sub: `${esc(cat.name)}${ITEM_TYPES[ftype] ? ' · ' + ITEM_TYPES[ftype].label : ''} · ${fcols.length} champs`, size: 'wide',
+    body: (it ? '' : `<div class="fg full type-pick"><label>Type de fiche</label><div class="seg-pick">${Object.entries(ITEM_TYPES).map(([k, T]) => `<button type="button" class="chip-opt ${k === ftype ? 'on' : ''}" data-ftype="${k}">${ic(T.icon)}${T.label}</button>`).join('')}<button type="button" class="chip-opt ${!ITEM_TYPES[ftype] ? 'on' : ''}" data-ftype="">${ic('grid')}Toutes les colonnes</button></div></div>`) + (fcols.length ? `<div class="form-grid">${fcols.map(c => fieldHtml(c, vals[c.id], cat.id)).join('')}</div>` : `<div class="empty"><b>Cette catégorie n'a aucune colonne</b>Ajoutez d'abord une colonne pour définir le formulaire.</div>`),
     foot: `<button class="btn" data-close type="button">Annuler</button>${it ? '' : '<button class="btn" id="iSaveNew" type="button">Enregistrer et nouveau</button>'}<button class="btn btn-accent" id="iSave" type="button">${it ? 'Enregistrer' : "Créer l'article"}</button>`,
   });
   m.el.dataset.item = itemId || '';
-  const catSel = $('#iCat', m.el); if (catSel) catSel.addEventListener('change', () => { const to = catSel.value; m.close(); setTimeout(() => openItemForm(to), 60); });
+  $$('[data-ftype]', m.el).forEach(b => b.addEventListener('click', () => { if (b.dataset.ftype === ftype) return; m.close(); setTimeout(() => openItemForm(catId, null, b.dataset.ftype), 60); }));
   // image controls
   $$('[data-img]', m.el).forEach(box => {
     const colId = box.dataset.img; const prev = $('.preview', box);
@@ -2483,7 +2507,7 @@ function openItemForm(catId, itemId) {
   const collect = () => {
     const out = {}; let ok = true;
     $$('.fg', m.el).forEach(f => f.classList.remove('invalid')); $$('.fg .err', m.el).forEach(e => e.remove());
-    cat.columns.forEach(c => {
+    fcols.forEach(c => {
       const el = $('#v_' + c.id, m.el); let v;
       if (c.type === 'image') v = images[c.id] || ''; else if (c.type === 'checkbox') v = el.checked; else if (c.type === 'link') { try { v = castValue(c, JSON.parse(el.value || '[]')); } catch (e) { v = []; } } else v = castValue(c, el.value.trim());
       const empty = v === '' || v === null || v === undefined || (Array.isArray(v) && !v.length);
@@ -2491,7 +2515,7 @@ function openItemForm(catId, itemId) {
       if (c.type === 'quantity' && !empty && v < 0) { ok = false; const fg = el.closest('.fg'); fg.classList.add('invalid'); fg.insertAdjacentHTML('beforeend', '<span class="err">La quantité ne peut pas être négative</span>'); }
       if (!empty || c.type === 'checkbox') out[c.id] = v;
     });
-    const refCol = roleCol(cat, 'reference');
+    const refCol = fcols.find(c => c.role === 'reference');
     if (refCol && out[refCol.id] && Repo.items.byCategory(catId).some(x => x !== it && String(x.values[refCol.id]).toLowerCase() === String(out[refCol.id]).toLowerCase())) {
       ok = false; const fg = $('#v_' + refCol.id, m.el).closest('.fg'); fg.classList.add('invalid'); fg.insertAdjacentHTML('beforeend', '<span class="err">Cette référence existe déjà dans la catégorie</span>');
     }
@@ -2500,18 +2524,22 @@ function openItemForm(catId, itemId) {
   };
   const save = (again) => {
     const values = collect(); if (!values) return;
-    const qCol = roleCol(cat, 'quantity');
+    const added = plan.filter(p => p.isNew && values[p.col.id] !== undefined && values[p.col.id] !== '').map(p => { const c = Object.assign({}, p.col); delete c.isNew; return c; });
+    // ex. « Désignation » ajoutée alors que « Modèle » servait de nom : la désignation devient le nom de l'article
+    plan.filter(p => p.wantRole && added.some(a => a.id === p.col.id)).forEach(p => { const old = cat.columns.find(x => x.role === p.wantRole); if (old && fcols.includes(old)) { old.role = ''; added.find(a => a.id === p.col.id).role = p.wantRole; } });
+    if (added.length || (!it && ITEM_TYPES[ftype] && cat.defaultForm !== ftype)) Repo.categories.update(cat.id, { columns: [...cat.columns, ...added], defaultForm: ITEM_TYPES[ftype] ? ftype : cat.defaultForm });
+    const qCol = ITEM_TYPES[ftype] && !ITEM_TYPES[ftype].stock ? null : roleCol(cat, 'quantity');
     if (it) {
       const before = qCol ? numOrNull(it.values[qCol.id]) ?? 0 : null;
       Repo.items.update(it.id, values);
       if (qCol) { const after = numOrNull(values[qCol.id]) ?? 0; if (after !== before) logMovement(it, 'adjust', Math.abs(after - before), before, after, 'Modification de la fiche article'); }
       toast('Article enregistré', 'ok');
     } else {
-      const created = Repo.items.create(catId, values);
+      const created = Repo.items.create(catId, values); if (ITEM_TYPES[ftype]) { created.formType = ftype; Repo.commit(); }
       if (qCol) { const q = numOrNull(values[qCol.id]) ?? 0; logMovement(created, 'initial', q, 0, q, 'Création de la fiche article'); }
       toast(`Article « ${itemName(created)} » créé`, 'ok');
     }
-    m.close(); render(); if (again) openItemForm(catId);
+    m.close(); render(); if (again) openItemForm(catId, null, ftype);
   };
   $('#iSave', m.el).addEventListener('click', () => save(false));
   const sn = $('#iSaveNew', m.el); if (sn) sn.addEventListener('click', () => save(true));
@@ -2522,7 +2550,7 @@ function logMovement(item, type, qty, prev, next, note, extra = {}) {
 
 /* ---------- Item detail ---------- */
 function openItemDetail(itemId) {
-  const it = Repo.items.get(itemId); const cat = catOf(it); const stock = isStockCat(cat);
+  const it = Repo.items.get(itemId); const cat = catOf(it); const stock = isStockCat(cat) && !isNonStockItem(it);
   const imgCol = cat.columns.find(c => c.type === 'image'); const img = imgCol ? it.values[imgCol.id] : '';
   const hist = Repo.journal.forItem(itemId).slice(0, 12); const u = qtyUnit(it);
   const m = Modal.open({
