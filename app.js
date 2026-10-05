@@ -387,7 +387,7 @@ async function signOutFirebase() {
 }
 /* ---- Installed app (phone / PC icon): service worker for instant start + install button ---- */
 let installEvt = null;
-const APP_VERSION = '20261005094956';
+const APP_VERSION = '20261005100444';
 /** Mise à jour automatique : dès qu'une nouvelle version est publiée, l'application se recharge toute seule
     (au démarrage, toutes les 5 min et quand on revient sur l'onglet / l'application), sauf si une fenêtre est ouverte. */
 function watchUpdates() {
@@ -1295,7 +1295,7 @@ function viewCategory(v) {
       <button class="icon-btn" id="catMenu" data-menu type="button" aria-label="Plus d'actions">${ic('more')}</button>
     </div></div>
   ${Repo.categories.children(cat.id).length ? `<div class="subcats">${Repo.categories.children(cat.id).map(sc => { const n = isFolder(sc) ? subtreeItems(sc).length : Repo.items.byCategory(sc.id).length; const al = Repo.items.byCategory(sc.id).filter(i => ['low', 'out'].includes(stockStatus(i))).length; return `<button type="button" class="subcat" data-subcat="${sc.id}" style="--c:${sc.color}"><span class="sc-ic">${ic('folder')}</span><span class="sc-t"><b>${esc(sc.name)}</b><span>${n} article${n > 1 ? 's' : ''}${al ? ` · <em>${al} alerte${al > 1 ? 's' : ''}</em>` : ''}</span></span><span class="sc-go">${ic('back')}</span></button>`; }).join('')}</div>` : ''}
-  ${isMouldCat(cat) ? mouldHistoryHtml(cat) : ''}
+  ${isMouldCat(cat) ? mouldFicheHtml(cat) + mouldHistoryHtml(cat) : ''}
   <div id="catShared"></div>
   <section class="panel">
     <div class="toolbar">
@@ -1306,7 +1306,7 @@ function viewCategory(v) {
     </div>
     <div id="catItems"></div>
   </section>`;
-  bindMouldHistory(v);
+  bindMouldHistory(v); bindMouldFiche(v, cat);
   $$('[data-subcat]', v).forEach(b => b.addEventListener('click', () => go('category', b.dataset.subcat)));
   const drawShared = () => {
     const shared = []; const box = $('#catShared', v);
@@ -2151,6 +2151,40 @@ function clPaperHtml(f) {
 
 /* ---------- mould page: history + quick start ---------- */
 const mouldFiches = (catId) => fiList().filter(f => f.checklist && f.checklist.mouldRef === 'c:' + catId).sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.number || '').localeCompare(a.number || ''));
+/* ---------- Fiche de vie du moule (identification, caractéristiques, consommables, photos) ---------- */
+const FV_FIELDS = [['code', 'Code interne'], ['designation', 'Désignation'], ['type', 'Type'], ['serie', 'N° de série'], ['dateEntree', 'Entrée en exploitation'], ['fournisseur', 'Fournisseur'],
+  ['hauteur', 'Hauteur'], ['epaisseur', 'Épaisseur'], ['longueur', 'Longueur'], ['largeur', 'Largeur'], ['accessoire', 'Accessoire'], ['empreintes', 'Nombre d’empreintes'], ['gravure', 'Gravure'], ['poids', 'Poids']];
+function mouldFicheHtml(cat) {
+  const f = cat.fiche || {};
+  const has = FV_FIELDS.some(([k]) => f[k]) || cat.image || f.photoProduit;
+  const cell = (k, l) => f[k] ? `<div class="fv-f"><span>${l}</span><b>${esc(f[k])}</b></div>` : '';
+  const photo = (src, l) => src ? `<figure class="fv-ph" data-fvimg="${l}"><img src="${src}" alt=""><figcaption>${l}</figcaption></figure>` : '';
+  return `<section class="panel fv" style="margin-bottom:18px"><div class="panel-head"><h2>${ic('layers')} Fiche de vie du moule</h2>
+    <button class="btn btn-sm" type="button" id="fvEdit">${ic('edit')}${has ? 'Modifier' : 'Remplir la fiche'}</button></div>
+    ${has ? `<div class="fv-body"><div class="fv-photos">${photo(cat.image, 'Moule')}${photo(f.photoProduit, 'Produit fini')}</div>
+      <div class="fv-info"><h3>Identification</h3><div class="fv-grid">${FV_FIELDS.slice(0, 6).map(([k, l]) => cell(k, l)).join('')}</div>
+      <h3>Caractéristiques techniques</h3><div class="fv-grid">${FV_FIELDS.slice(6).map(([k, l]) => cell(k, l)).join('')}</div>
+      ${(f.consommables || []).length ? `<h3>Consommables</h3><div class="fv-tags">${f.consommables.map(x => `<span class="tag">${esc(x)}</span>`).join('')}</div>` : ''}</div></div>`
+      : `<div class="empty"><b>Fiche de vie vide</b>Ajoutez le n° de série, le fournisseur, les dimensions et les photos du moule.</div>`}</section>`;
+}
+function bindMouldFiche(root, cat) {
+  $$('[data-fvimg] img', root).forEach(i => i.addEventListener('click', () => lightbox(i.src)));
+  const b = $('#fvEdit', root); if (b) b.addEventListener('click', () => openMouldFicheForm(cat.id));
+}
+function openMouldFicheForm(catId) {
+  const cat = Repo.categories.get(catId); const f = Object.assign({}, cat.fiche || {}); const img = { moule: cat.image || '', produit: f.photoProduit || '' };
+  const m = Modal.open({ title: 'Fiche de vie du moule', sub: esc(cat.name), size: 'wide',
+    body: `<div class="form-grid">${FV_FIELDS.map(([k, l]) => `<div class="fg"><label for="fv_${k}">${l}</label><input class="input" id="fv_${k}" value="${esc(f[k] || '')}"></div>`).join('')}
+      <div class="fg full"><label for="fv_cons">Consommables (séparés par des virgules)</label><input class="input" id="fv_cons" value="${esc((f.consommables || []).join(', '))}"></div>
+      ${['moule', 'produit'].map(k => `<div class="fg"><label>Photo ${k === 'moule' ? 'du moule' : 'du produit fini'}</label><div class="fv-pick" data-fvp="${k}"><div class="preview">${img[k] ? `<img src="${img[k]}" alt="">` : icon('image')}</div><button class="btn btn-sm" type="button">${ic('upload')}Choisir</button></div></div>`).join('')}</div>`,
+    foot: `<button class="btn" data-close type="button">Annuler</button><button class="btn btn-accent" id="fvSave" type="button">Enregistrer</button>` });
+  $$('[data-fvp]', m.el).forEach(box => $('button', box).addEventListener('click', async () => { const src = await ImageTools.pick(); if (src) { img[box.dataset.fvp] = src; $('.preview', box).innerHTML = `<img src="${src}" alt="">`; } }));
+  $('#fvSave', m.el).addEventListener('click', () => {
+    const nf = {}; FV_FIELDS.forEach(([k]) => { const v = $('#fv_' + k, m.el).value.trim(); if (v) nf[k] = v; });
+    nf.consommables = $('#fv_cons', m.el).value.split(',').map(x => x.trim()).filter(Boolean); if (img.produit) nf.photoProduit = img.produit;
+    Repo.categories.update(cat.id, { fiche: nf, image: img.moule || cat.image || '' }); m.close(); toast('Fiche de vie enregistrée', 'ok'); render();
+  });
+}
 function mouldHistoryHtml(cat) {
   const list = mouldFiches(cat.id); const last = list.find(f => f.status === 'closed');
   const ago = last ? Math.round((parseYmd(todayYmd()) - parseYmd(last.date)) / 86400000) : null;
@@ -2781,6 +2815,32 @@ const DATA_TASKS = [
     if (st && !it.values[st.id]) it.values[st.id] = (st.options || [])[0] || 'En production';
     if (!it.formType) it.formType = 'machine';
     it.updatedAt = now;
+    return true;
+  } },
+  { id: 'moules-injection-silicone-fiches-2026-10-05', run() {
+    // Dossier « Moule injection silicone » (dans Moule) + fiche de vie et photos de chaque moule (fichiers « Fiche de vie moule »).
+    if (!window.__fvMoules) { if (!window.__fvLoading) { window.__fvLoading = true; fetch('data/fiches-moules-2026-10-05.json', { cache: 'no-store' }).then(r => r.json()).then(j => { window.__fvMoules = j; if (runDataTasks() && !Modal.top()) render(); }).catch(() => { window.__fvLoading = false; }); } return false; }
+    const db = Repo.raw(); const now = new Date().toISOString();
+    const moule = Repo.categories.get('cmuo2ueavi32um') || Repo.categories.list().find(c => isFolder(c) && /^moules?$/i.test(c.name.trim())); if (!moule) return false;
+    let folder = Repo.categories.get('c-moule-inj-sil');
+    if (!folder) { folder = { id: 'c-moule-inj-sil', kind: 'folder', parentId: moule.id, name: 'Moule injection silicone', code: 'MIS', color: '#1E5FD2', description: 'Moules d’injection silicone : fiche de vie, photos, pièces et historique de maintenance.', columns: [], createdAt: now, updatedAt: now }; db.categories.push(folder); }
+    const byName = (re) => Repo.categories.list().find(c => !isFolder(c) && re.test(c.name));
+    const NAMES = { BPM: /BPM|petit mod/i, BGM: /BGM|grand mod/i, CUI: /cuill/i, SUC: /sucette/i, TL: /t[ée]tine large/i, TNF: /natural flow/i, TS: /t[ée]tine souple/i, TPH: /physiolog/i };
+    window.__fvMoules.forEach(r => {
+      let cat = (r.cat && Repo.categories.get(r.cat)) || byName(NAMES[r.code]);
+      if (!cat) {
+        const model = Repo.categories.get('cmupi8v2ribvcn') || Repo.categories.list().find(c => !isFolder(c) && /moule/i.test(c.name) && isStockCat(c));
+        const cols = model ? model.columns.map(c => Object.assign({}, c, { id: c.id + '-' + r.code.toLowerCase() })) : [];
+        cat = { id: 'c-moule-' + r.code.toLowerCase(), kind: 'items', parentId: folder.id, name: 'Moule ' + r.fiche.designation, code: r.code, color: '#2E8B57', description: '', columns: cols, createdAt: now, updatedAt: now };
+        if (!Repo.categories.get(cat.id)) db.categories.push(cat); else cat = Repo.categories.get(cat.id);
+      }
+      cat.parentId = folder.id;
+      cat.fiche = Object.assign({}, r.fiche, cat.fiche || {});            // ce qui a déjà été saisi dans l'application reste
+      if (!cat.fiche.photoProduit && r.fiche.photoProduit) cat.fiche.photoProduit = r.fiche.photoProduit;
+      if (!cat.image) cat.image = r.image;
+      if (!cat.code || cat.code.length > 4) cat.code = r.code;
+      cat.updatedAt = now;
+    });
     return true;
   } },
 ];
