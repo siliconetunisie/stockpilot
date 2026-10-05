@@ -387,7 +387,7 @@ async function signOutFirebase() {
 }
 /* ---- Installed app (phone / PC icon): service worker for instant start + install button ---- */
 let installEvt = null;
-const APP_VERSION = '20261005111323';
+const APP_VERSION = '20261005130413';
 /** Mise à jour automatique : dès qu'une nouvelle version est publiée, l'application se recharge toute seule
     (au démarrage, toutes les 5 min et quand on revient sur l'onglet / l'application), sauf si une fenêtre est ouverte. */
 function watchUpdates() {
@@ -2076,7 +2076,7 @@ const MOULD_CL = ['Nettoyage circuit de matière', 'Nettoyage valve', 'Nettoyage
 
 const isMouldPath = (c) => !!c && catPath(c).some(x => /moule/i.test(x.name));
 /** Mould = a non-folder category in a "Moule" branch. */
-const isMouldCat = (c) => !!c && !isFolder(c) && isMouldPath(c) && !(c.parentId && !isFolder(Repo.categories.get(c.parentId)));
+const isMouldCat = (c) => !!c && !isFolder(c) && !c.notMould && isMouldPath(c) && !(c.parentId && !isFolder(Repo.categories.get(c.parentId)));
 const mouldCats = () => itemCats().filter(isMouldCat);
 /** The check-list applies only when the mould itself (a mould category) is chosen as equipment — not a part of it. */
 function isMouldRelated(ref) { return !!ref && ref[0] === 'c' && isMouldCat(Repo.categories.get(ref.slice(2))); }
@@ -2914,6 +2914,31 @@ const DATA_TASKS = [
     db.items = db.items.filter(i => !(gone.has(i.categoryId) || i.id === 'i-tym-w4545' || /^i-eq-/.test(i.id)));
     db.categories = db.categories.filter(c => !gone.has(c.id));
     db.items.forEach(i => Object.keys(i.values).forEach(k => { const v = i.values[k]; if (typeof v === 'string' && /Fiche de vie — code interne TYM-(UI1|EAU1)/.test(v)) { i.values[k] = v.replace(/(\n\n)?Fiche de vie — code interne TYM-(UI1|EAU1)[\s\S]*?(Pièces de rechange : [^\n]*)/g, '').trim(); i.updatedAt = now; } }));
+    return true;
+  } },
+  { id: 'mold-heaters-silicone-2026-10-05', run() {
+    // Résistances de moule (mold heaters) : catégorie dans « Moule injection silicone », en commun avec « Pièces de rechange ».
+    const db = Repo.raw(); const now = new Date().toISOString();
+    const folder = Repo.categories.get('c-moule-inj-sil'); if (!folder) return false;           // le dossier est créé par la tâche des fiches de moules
+    const pdr = Repo.categories.get('cmuo1p9p9cchsu') || Repo.categories.list().find(c => !isFolder(c) && /pi[eè]ces? de rechange/i.test(c.name));
+    const col = (id, name, type, extra = {}) => Object.assign({ id, name, type, required: false, default: '', options: [], role: '', unit: '' }, extra);
+    let cat = Repo.categories.get('c-mold-heater');
+    if (!cat) { cat = { id: 'c-mold-heater', kind: 'items', parentId: folder.id, name: 'Mold heater (résistances moule)', code: 'MH', color: '#DC2626', notMould: true, description: 'Résistances chauffantes des moules d’injection silicone (mold heaters).', createdAt: now, updatedAt: now, defaultForm: 'piece',
+      columns: [col('f-mh-ref', 'Référence', 'reference', { role: 'reference', required: true }), col('f-mh-des', 'Désignation', 'text', { role: 'name', required: true }), col('f-mh-dia', 'Diamètre', 'number', { unit: 'mm' }), col('f-mh-len', 'Longueur', 'number', { unit: 'mm' }),
+        col('f-mh-volt', 'Tension', 'text'), col('f-mh-w', 'Puissance', 'number', { unit: 'W' }), col('f-mh-code', 'Marquage', 'text'), col('f-mh-qty', 'Quantité', 'quantity', { role: 'quantity', required: true, default: 0, unit: 'pcs' }),
+        col('f-mh-min', 'Stock min', 'number', { role: 'min', unit: 'pcs' }), col('f-mh-loc', 'Emplacement', 'text', { role: 'location' }), col('f-mh-link', 'En commun avec', 'link'), col('f-mh-photo', 'Photo', 'image'), col('f-mh-notes', 'Notes', 'longtext')] };
+      db.categories.push(cat); }
+    const H = [[11.8, 400, 800, '150m', 10], [11.8, 340, 800, '1707', 7], [11.8, 300, 800, '22.8', 10], [11.8, 300, 600, '22-06', 8], [11.8, 300, 800, '20.7', 10], [11.8, 340, 800, '', 11], [9.8, 340, 900, '1704', 18]];
+    const user = Repo.settings.get().user || 'Admin';
+    H.forEach(([d, l, w, code, q], k) => {
+      const id = 'i-mh-' + (k + 1); if (db.items.some(i => i.id === id)) return;
+      const ref = `MH-${d}x${l}-${w}W${code ? '-' + code : ''}`; const des = `Résistance moule ${String(d).replace('.', ',')} × ${l} · 220 V ${w} W${code ? ' (' + code + ')' : ''}`;
+      const values = { 'f-mh-ref': ref, 'f-mh-des': des, 'f-mh-dia': d, 'f-mh-len': l, 'f-mh-volt': '220 V', 'f-mh-w': w, 'f-mh-qty': q }; if (code) values['f-mh-code'] = code;
+      if (pdr) values['f-mh-link'] = ['c:' + pdr.id];
+      db.items.push({ id, categoryId: cat.id, createdAt: now, updatedAt: now, values, formType: 'piece' });
+      if (!db.movements.some(m => m.id === 'm-mh-' + (k + 1))) db.movements.unshift({ id: 'm-mh-' + (k + 1), date: now, itemId: id, categoryId: cat.id, ref, itemName: des, categoryName: cat.name, type: 'initial', qty: q, prev: 0, next: q, note: 'Stock initial · mold heaters', location: '', user });
+    });
+    db.movements.sort((a, b) => b.date.localeCompare(a.date));
     return true;
   } },
 ];
