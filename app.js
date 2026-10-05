@@ -387,7 +387,7 @@ async function signOutFirebase() {
 }
 /* ---- Installed app (phone / PC icon): service worker for instant start + install button ---- */
 let installEvt = null;
-const APP_VERSION = '20261005100444';
+const APP_VERSION = '20261005103641';
 /** Mise à jour automatique : dès qu'une nouvelle version est publiée, l'application se recharge toute seule
     (au démarrage, toutes les 5 min et quand on revient sur l'onglet / l'application), sauf si une fenêtre est ouverte. */
 function watchUpdates() {
@@ -2164,7 +2164,8 @@ function mouldFicheHtml(cat) {
     ${has ? `<div class="fv-body"><div class="fv-photos">${photo(cat.image, 'Moule')}${photo(f.photoProduit, 'Produit fini')}</div>
       <div class="fv-info"><h3>Identification</h3><div class="fv-grid">${FV_FIELDS.slice(0, 6).map(([k, l]) => cell(k, l)).join('')}</div>
       <h3>Caractéristiques techniques</h3><div class="fv-grid">${FV_FIELDS.slice(6).map(([k, l]) => cell(k, l)).join('')}</div>
-      ${(f.consommables || []).length ? `<h3>Consommables</h3><div class="fv-tags">${f.consommables.map(x => `<span class="tag">${esc(x)}</span>`).join('')}</div>` : ''}</div></div>`
+      ${(f.consommables || []).length ? `<h3>Consommables</h3><div class="fv-tags">${f.consommables.map(x => `<span class="tag">${esc(x)}</span>`).join('')}</div>` : ''}
+      ${(f.historique || []).length ? `<h3>Suivi des travaux (fiche papier)</h3><div class="table-wrap"><table class="data"><thead><tr><th>Date</th><th>Travaux / nettoyage</th><th>Consommation</th></tr></thead><tbody>${f.historique.map(([d, t, c]) => `<tr><td class="num" style="white-space:nowrap">${esc(fmtDate(d))}</td><td>${esc(t)}</td><td>${esc(c || '—')}</td></tr>`).join('')}</tbody></table></div>` : ''}</div></div>`
       : `<div class="empty"><b>Fiche de vie vide</b>Ajoutez le n° de série, le fournisseur, les dimensions et les photos du moule.</div>`}</section>`;
 }
 function bindMouldFiche(root, cat) {
@@ -2181,7 +2182,7 @@ function openMouldFicheForm(catId) {
   $$('[data-fvp]', m.el).forEach(box => $('button', box).addEventListener('click', async () => { const src = await ImageTools.pick(); if (src) { img[box.dataset.fvp] = src; $('.preview', box).innerHTML = `<img src="${src}" alt="">`; } }));
   $('#fvSave', m.el).addEventListener('click', () => {
     const nf = {}; FV_FIELDS.forEach(([k]) => { const v = $('#fv_' + k, m.el).value.trim(); if (v) nf[k] = v; });
-    nf.consommables = $('#fv_cons', m.el).value.split(',').map(x => x.trim()).filter(Boolean); if (img.produit) nf.photoProduit = img.produit;
+    nf.consommables = $('#fv_cons', m.el).value.split(',').map(x => x.trim()).filter(Boolean); if (img.produit) nf.photoProduit = img.produit; if ((cat.fiche || {}).historique) nf.historique = cat.fiche.historique;
     Repo.categories.update(cat.id, { fiche: nf, image: img.moule || cat.image || '' }); m.close(); toast('Fiche de vie enregistrée', 'ok'); render();
   });
 }
@@ -2817,16 +2818,20 @@ const DATA_TASKS = [
     it.updatedAt = now;
     return true;
   } },
-  { id: 'moules-injection-silicone-fiches-2026-10-05', run() {
-    // Dossier « Moule injection silicone » (dans Moule) + fiche de vie et photos de chaque moule (fichiers « Fiche de vie moule »).
-    if (!window.__fvMoules) { if (!window.__fvLoading) { window.__fvLoading = true; fetch('data/fiches-moules-2026-10-05.json', { cache: 'no-store' }).then(r => r.json()).then(j => { window.__fvMoules = j; if (runDataTasks() && !Modal.top()) render(); }).catch(() => { window.__fvLoading = false; }); } return false; }
+  { id: 'moules-injection-silicone-fiches-2026-10-05', run() { return applyMouldFiches('data/fiches-moules-2026-10-05.json', '__fvMoules'); } },
+  { id: 'moule-embout-nasal-fiche-2026-10-05', run() { return applyMouldFiches('data/fiche-moule-embout-2026-10-05.json', '__fvEmbout'); } },
+];
+/** Applies pending one-time tasks; returns true when the data changed. */
+/** Dossier « Moule injection silicone » (dans Moule) + fiche de vie et photos de chaque moule (fichiers « Fiche de vie moule »). */
+function applyMouldFiches(url, key) {
+    if (!window[key]) { if (!window[key + 'L']) { window[key + 'L'] = true; fetch(url, { cache: 'no-store' }).then(r => r.json()).then(j => { window[key] = j; if (runDataTasks() && !Modal.top()) render(); }).catch(() => { window[key + 'L'] = false; }); } return false; }
     const db = Repo.raw(); const now = new Date().toISOString();
     const moule = Repo.categories.get('cmuo2ueavi32um') || Repo.categories.list().find(c => isFolder(c) && /^moules?$/i.test(c.name.trim())); if (!moule) return false;
     let folder = Repo.categories.get('c-moule-inj-sil');
     if (!folder) { folder = { id: 'c-moule-inj-sil', kind: 'folder', parentId: moule.id, name: 'Moule injection silicone', code: 'MIS', color: '#1E5FD2', description: 'Moules d’injection silicone : fiche de vie, photos, pièces et historique de maintenance.', columns: [], createdAt: now, updatedAt: now }; db.categories.push(folder); }
     const byName = (re) => Repo.categories.list().find(c => !isFolder(c) && re.test(c.name));
-    const NAMES = { BPM: /BPM|petit mod/i, BGM: /BGM|grand mod/i, CUI: /cuill/i, SUC: /sucette/i, TL: /t[ée]tine large/i, TNF: /natural flow/i, TS: /t[ée]tine souple/i, TPH: /physiolog/i };
-    window.__fvMoules.forEach(r => {
+    const NAMES = { EMB: /embout/i, BPM: /BPM|petit mod/i, BGM: /BGM|grand mod/i, CUI: /cuill/i, SUC: /sucette/i, TL: /t[ée]tine large/i, TNF: /natural flow/i, TS: /t[ée]tine souple/i, TPH: /physiolog/i };
+    window[key].forEach(r => {
       let cat = (r.cat && Repo.categories.get(r.cat)) || byName(NAMES[r.code]);
       if (!cat) {
         const model = Repo.categories.get('cmupi8v2ribvcn') || Repo.categories.list().find(c => !isFolder(c) && /moule/i.test(c.name) && isStockCat(c));
@@ -2842,9 +2847,7 @@ const DATA_TASKS = [
       cat.updatedAt = now;
     });
     return true;
-  } },
-];
-/** Applies pending one-time tasks; returns true when the data changed. */
+}
 function runDataTasks() {
   const done = new Set(Repo.raw().settings.tasksDone || []); let changed = false;
   DATA_TASKS.forEach(t => { if (done.has(t.id)) return; try { if (t.run()) { done.add(t.id); changed = true; } } catch (e) { /* retried next start */ } });
