@@ -387,7 +387,7 @@ async function signOutFirebase() {
 }
 /* ---- Installed app (phone / PC icon): service worker for instant start + install button ---- */
 let installEvt = null;
-const APP_VERSION = '20261003110749';
+const APP_VERSION = '20261005092949';
 /** Mise à jour automatique : dès qu'une nouvelle version est publiée, l'application se recharge toute seule
     (au démarrage, toutes les 5 min et quand on revient sur l'onglet / l'application), sauf si une fenêtre est ouverte. */
 function watchUpdates() {
@@ -2451,10 +2451,11 @@ function openItemForm(catId, itemId) {
   cat.columns.forEach(c => { if (c.type === 'image') images[c.id] = vals[c.id] || ''; if (!it && c.default !== '' && c.default !== undefined && c.type !== 'image') vals[c.id] = c.default; });
   const m = Modal.open({
     title: it ? "Modifier l'article" : 'Nouvel article', sub: `${esc(cat.name)} · ${cat.columns.length} champs`, size: 'wide',
-    body: cat.columns.length ? `<div class="form-grid">${cat.columns.map(c => fieldHtml(c, vals[c.id], cat.id)).join('')}</div>` : `<div class="empty"><b>Cette catégorie n'a aucune colonne</b>Ajoutez d'abord une colonne pour définir le formulaire.</div>`,
+    body: (it ? '' : `<div class="fg full cat-pick"><label for="iCat">Catégorie de l’article</label><select class="select full" id="iCat">${itemCats().map(c => `<option value="${c.id}"${c.id === cat.id ? ' selected' : ''}>${esc(catLabel(c))}${isStockCat(c) ? '' : ' (machines / équipements)'}</option>`).join('')}</select><span class="hint">Le formulaire s’adapte à la catégorie choisie.</span></div>`) + (cat.columns.length ? `<div class="form-grid">${cat.columns.map(c => fieldHtml(c, vals[c.id], cat.id)).join('')}</div>` : `<div class="empty"><b>Cette catégorie n'a aucune colonne</b>Ajoutez d'abord une colonne pour définir le formulaire.</div>`),
     foot: `<button class="btn" data-close type="button">Annuler</button>${it ? '' : '<button class="btn" id="iSaveNew" type="button">Enregistrer et nouveau</button>'}<button class="btn btn-accent" id="iSave" type="button">${it ? 'Enregistrer' : "Créer l'article"}</button>`,
   });
   m.el.dataset.item = itemId || '';
+  const catSel = $('#iCat', m.el); if (catSel) catSel.addEventListener('change', () => { const to = catSel.value; m.close(); setTimeout(() => openItemForm(to), 60); });
   // image controls
   $$('[data-img]', m.el).forEach(box => {
     const colId = box.dataset.img; const prev = $('.preview', box);

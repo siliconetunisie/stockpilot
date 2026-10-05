@@ -759,3 +759,4 @@ tr.shared td{background:color-mix(in srgb,var(--brand-sky,#5CC0FA) 7%,transparen
 .shared-tag{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;background:color-mix(in srgb,var(--brand-blue,#1E5FD2) 12%,transparent);color:var(--brand-blue,#1E5FD2);font:600 11.5px var(--sans);white-space:nowrap}
 .icard .shared-tag{position:absolute;top:8px;left:8px;z-index:2;background:rgba(255,255,255,.95);box-shadow:0 1px 4px rgba(0,0,0,.18)}
 .icard.shared{border-style:dashed}
+.cat-pick{margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--line, #e3e8f0)}
