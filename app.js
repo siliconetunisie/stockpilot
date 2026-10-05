@@ -387,7 +387,7 @@ async function signOutFirebase() {
 }
 /* ---- Installed app (phone / PC icon): service worker for instant start + install button ---- */
 let installEvt = null;
-const APP_VERSION = '20261005103641';
+const APP_VERSION = '20261005105150';
 /** Mise à jour automatique : dès qu'une nouvelle version est publiée, l'application se recharge toute seule
     (au démarrage, toutes les 5 min et quand on revient sur l'onglet / l'application), sauf si une fenêtre est ouverte. */
 function watchUpdates() {
@@ -2820,6 +2820,11 @@ const DATA_TASKS = [
   } },
   { id: 'moules-injection-silicone-fiches-2026-10-05', run() { return applyMouldFiches('data/fiches-moules-2026-10-05.json', '__fvMoules'); } },
   { id: 'moule-embout-nasal-fiche-2026-10-05', run() { return applyMouldFiches('data/fiche-moule-embout-2026-10-05.json', '__fvEmbout'); } },
+  { id: 'retirer-suivi-papier-embout-2026-10-05', run() {
+    // Retire le « Suivi des travaux (fiche papier) » de la fiche de vie du moule Embout nasal.
+    Repo.categories.list().forEach(c => { if (c.fiche && c.fiche.historique) { delete c.fiche.historique; c.updatedAt = new Date().toISOString(); } });
+    return true;
+  } },
 ];
 /** Applies pending one-time tasks; returns true when the data changed. */
 /** Dossier « Moule injection silicone » (dans Moule) + fiche de vie et photos de chaque moule (fichiers « Fiche de vie moule »). */
