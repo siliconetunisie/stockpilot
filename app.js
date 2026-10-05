@@ -387,7 +387,7 @@ async function signOutFirebase() {
 }
 /* ---- Installed app (phone / PC icon): service worker for instant start + install button ---- */
 let installEvt = null;
-const APP_VERSION = '20261005093912';
+const APP_VERSION = '20261005094956';
 /** Mise à jour automatique : dès qu'une nouvelle version est publiée, l'application se recharge toute seule
     (au démarrage, toutes les 5 min et quand on revient sur l'onglet / l'application), sauf si une fenêtre est ouverte. */
 function watchUpdates() {
@@ -2757,6 +2757,30 @@ const DATA_TASKS = [
       if (q) { const cur = Number(it.values[q.id]) || 0; it.values[q.id] = cur === dup.next ? dup.prev : Math.max(0, cur - dup.qty); it.updatedAt = new Date().toISOString(); } }
     db.items = db.items.filter(i => !/^i-jpr2-/.test(i.id));
     db.movements = db.movements.filter(m => !/^m-jpr2-/.test(m.id));
+    return true;
+  } },
+  { id: 'machine-tym-w4545-2026-10-05', run() {
+    // Fiche de la machine TYM-W4545 (données du fabricant) dans « Machines d'injection ». Complète la fiche si elle existe déjà.
+    const db = Repo.raw(); const cat = Repo.categories.get('cmuo1p9p9bbqwt') || Repo.categories.list().find(c => !isFolder(c) && /machines? d.?injection/i.test(c.name));
+    if (!cat) return false;
+    const by = (re, role) => cat.columns.find(c => re.test(normName(c.name))) || (role ? cat.columns.find(c => c.role === role) : null);
+    const notes = ['Fabricant : TYM Silicone Machine Ltd — Guangzhou (Chine) · www.gdtym.com',
+      'Type : machine horizontale d’injection silicone liquide (LSR), unité d’injection dynamique (cylindre de mélange et cylindre d’injection séparés)',
+      'Force de fermeture : 130 T', 'Passage entre colonnes / plateaux : 450 × 450 mm', 'Volume injectable : 10 / 35 / 70 / 160 / 285 g (sur commande)',
+      'Débit d’injection : 150 g/s', 'Pression d’injection : 700 kg/cm²', 'Pression pompe : 20 MPa', 'Puissance moteur : 12 kW',
+      'Course d’éjection : 145 mm · force d’éjection : 4 T', 'Encombrement : 4,3 × 1,3 × 2,0 m · poids : 5,2 T',
+      'Contact pièces : sales01@gdtym.com · WhatsApp +86 188 1411 5468 (donner le n° de série)'].join('\n');
+    const want = [[by(/^reference/, 'reference'), 'TYM-W4545'], [by(/^fabricant/), 'TYM Silicone Machine Ltd (Guangzhou, Chine)'], [by(/^modele/), 'TYM-W4545 · injection LSR horizontale'],
+      [by(/^designation/), 'Machine d’injection silicone liquide TYM-W4545'], [by(/^tonnage/), 130], [by(/^notes?$/), notes]];
+    const nameCol = cat.columns.find(c => c.role === 'name'); if (nameCol && !want.some(([c]) => c === nameCol)) want.push([nameCol, 'Machine d’injection silicone TYM-W4545']);
+    const st = by(/^statut/);
+    let it = db.items.find(i => i.categoryId === cat.id && /4545/.test(JSON.stringify(i.values)));
+    const now = new Date().toISOString();
+    if (!it) { it = { id: 'i-tym-w4545', categoryId: cat.id, createdAt: now, updatedAt: now, values: {}, formType: 'machine' }; if (!db.items.some(i => i.id === it.id)) db.items.push(it); else it = db.items.find(i => i.id === it.id); }
+    want.forEach(([c, v]) => { if (c && (it.values[c.id] === undefined || it.values[c.id] === '' || it.values[c.id] === null)) it.values[c.id] = v; });
+    if (st && !it.values[st.id]) it.values[st.id] = (st.options || [])[0] || 'En production';
+    if (!it.formType) it.formType = 'machine';
+    it.updatedAt = now;
     return true;
   } },
 ];
