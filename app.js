@@ -387,7 +387,7 @@ async function signOutFirebase() {
 }
 /* ---- Installed app (phone / PC icon): service worker for instant start + install button ---- */
 let installEvt = null;
-const APP_VERSION = '20261005141404';
+const APP_VERSION = '20261006110518';
 /** Mise à jour automatique : dès qu'une nouvelle version est publiée, l'application se recharge toute seule
     (au démarrage, toutes les 5 min et quand on revient sur l'onglet / l'application), sauf si une fenêtre est ouverte. */
 function watchUpdates() {
@@ -2959,6 +2959,25 @@ const DATA_TASKS = [
     const tym = Repo.categories.get('c-mat-tym') || Repo.categories.list().find(c => !isFolder(c) && /tym|machine d.?injection/i.test(c.name)); if (!tym) return false;
     if (!Repo.categories.get('c-tym-melangeur') && !Repo.categories.children(tym.id).some(c => /m[ée]langeur statique/i.test(c.name)))
       db.categories.push({ id: 'c-tym-melangeur', kind: 'folder', parentId: tym.id, name: 'Mélangeur statique', code: 'MS', color: '#0EA5E9', description: 'Mélangeur statique de la machine d’injection TYM : un sous-dossier ou une sous-catégorie par composant.', columns: [], createdAt: now, updatedAt: now });
+    return true;
+  } },
+  { id: 'joints-en-commun-dossier-joint-2026-10-06', run() {
+    // Tous les joints rangés hors du dossier « joint » (Pièces de rechange) y sont mis en commun. Rien n'est déplacé, aucune quantité ni mouvement ne change.
+    const target = Repo.categories.get('cmuo1p9pap6qqs') || Repo.categories.list().find(c => !isFolder(c) && /^joints?$/i.test(c.name.trim()) && /pi[eè]ces? de rechange/i.test((Repo.categories.get(c.parentId) || {}).name || ''));
+    if (!target) return false;
+    const inside = new Set([target.id, ...descendants(target.id).map(c => c.id)]);
+    const ref = 'c:' + target.id; const now = new Date().toISOString();
+    const norm = (v) => String(v || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    Repo.raw().items.forEach(it => {
+      if (inside.has(it.categoryId)) return;
+      const c = Repo.categories.get(it.categoryId); if (!c || isFolder(c)) return;
+      const txt = c.columns.filter(x => x.role === 'name' || x.role === 'reference' || x.type === 'reference' || x.type === 'dropdown').map(x => norm(it.values[x.id])).join(' ') + ' ' + norm(it.name);
+      if (!/\bjoints?\b/.test(txt)) return;
+      let lc = c.columns.find(x => x.type === 'link');
+      if (!lc) { lc = { id: 'f-lnk-' + c.id, name: 'En commun avec', type: 'link', required: false, default: '', options: [], role: '', unit: '' }; const li = c.columns.findIndex(x => x.role === 'location'); c.columns.splice(li >= 0 ? li + 1 : c.columns.length, 0, lc); c.updatedAt = now; }
+      const cur = Array.isArray(it.values[lc.id]) ? it.values[lc.id] : [];
+      if (!cur.includes(ref)) { it.values[lc.id] = [...cur, ref]; it.updatedAt = now; }
+    });
     return true;
   } },
 ];
